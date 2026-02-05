@@ -1,0 +1,71 @@
+---
+- name: Install openclaw via npm
+  ansible.builtin.shell: |
+    export PATH="$HOME/.npm-global/bin:$PATH"
+    npm install -g openclaw@{{ openclaw_version }}
+  when: openclaw_install_method == "npm"
+  register: npm_install
+  changed_when: "'added' in npm_install.stdout or 'updated' in npm_install.stdout"
+
+- name: Clone openclaw from git
+  ansible.builtin.git:
+    repo: https://github.com/openclaw/openclaw.git
+    dest: "{{ openclaw_git_dir }}"
+    version: main
+  when: openclaw_install_method == "git"
+
+- name: Install pnpm for git install
+  ansible.builtin.shell: |
+    export PATH="$HOME/.npm-global/bin:$PATH"
+    npm install -g pnpm
+  when: openclaw_install_method == "git"
+
+- name: Build openclaw from source
+  ansible.builtin.shell: |
+    export PATH="$HOME/.npm-global/bin:$PATH"
+    cd {{ openclaw_git_dir }}
+    pnpm install
+    pnpm build
+  when: openclaw_install_method == "git"
+
+- name: Create openclaw directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0700'
+  loop:
+    - "{{ openclaw_state_dir }}"
+    - "{{ openclaw_workspace_dir }}"
+    - "{{ openclaw_workspaces_dir }}/scout"
+    - "{{ openclaw_workspaces_dir }}/pulse"
+    - "{{ openclaw_workspaces_dir }}/rogue"
+    - ~/.config/systemd/user
+
+- name: Deploy openclaw config
+  ansible.builtin.template:
+    src: openclaw.json.j2
+    dest: "{{ openclaw_state_dir }}/openclaw.json"
+    mode: '0600'
+  notify: restart openclaw
+
+- name: Deploy exec-approvals config
+  ansible.builtin.template:
+    src: exec-approvals.json.j2
+    dest: "{{ openclaw_state_dir }}/exec-approvals.json"
+    mode: '0600'
+  notify: restart openclaw
+
+- name: Deploy systemd service
+  ansible.builtin.template:
+    src: openclaw-gateway.service.j2
+    dest: ~/.config/systemd/user/openclaw-gateway.service
+    mode: '0644'
+  notify: restart openclaw
+
+- name: Enable and start openclaw gateway
+  ansible.builtin.systemd:
+    name: openclaw-gateway
+    state: started
+    enabled: yes
+    scope: user
+    daemon_reload: yes

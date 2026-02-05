@@ -1,0 +1,26 @@
+---
+- name: Check if Node.js is installed
+  ansible.builtin.command: node --version
+  register: node_check
+  failed_when: false
+  changed_when: false
+
+- name: Install Node.js
+  ansible.builtin.dnf:
+    name: nodejs
+    state: present
+  become: true
+  when: node_check.rc != 0
+
+- name: Configure npm for user-local installs
+  ansible.builtin.shell: |
+    mkdir -p ~/.npm-global
+    npm config set prefix ~/.npm-global
+  args:
+    creates: ~/.npm-global
+
+- name: Add npm bin to PATH in bashrc
+  ansible.builtin.lineinfile:
+    path: ~/.bashrc
+    line: 'export PATH="$HOME/.npm-global/bin:$PATH"'
+    create: yes

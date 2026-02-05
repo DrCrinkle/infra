@@ -1,0 +1,17 @@
+# OCI Configuration
+# Get these values from your OCI Console
+
+# Tenancy OCID (or compartment OCID if using a sub-compartment)
+# Found in: Profile menu > Tenancy: <name> > OCID
+compartment_id = "ocid1.tenancy.oc1..your-tenancy-ocid-here"
+
+# Object Storage namespace
+# Found in: Profile menu > Tenancy: <name> > Object Storage Namespace
+oci_namespace = "your-namespace-here"
+
+# Region identifier
+# See: https://docs.oracle.com/en-us/iaas/Content/General/Concepts/regions.htm
+region = "us-ashburn-1"
+
+# SSH public key for instance access
+ssh_public_key = "ssh-ed25519 AAAA... user@host"

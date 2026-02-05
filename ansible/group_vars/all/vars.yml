@@ -1,0 +1,35 @@
+openclaw_version: "latest"
+openclaw_install_method: "git"
+openclaw_git_dir: "/home/{{ ansible_user }}/openclaw"
+
+openclaw_gateway_port: 18789
+openclaw_gateway_bind: "loopback"
+openclaw_gateway_auth_mode: "token"
+
+openclaw_exec_security: "allowlist"
+openclaw_exec_ask: "on-miss"
+
+openclaw_default_model: "anthropic/claude-sonnet-4-5"
+
+openclaw_state_dir: "/home/{{ ansible_user }}/.openclaw"
+openclaw_workspace_dir: "/home/{{ ansible_user }}/workspace"
+openclaw_workspaces_dir: "/home/{{ ansible_user }}/workspaces"
+
+firewall_allowed_ports:
+  - "22/tcp"
+
+tailscale_enabled: true
+tailscale_serve_mode: "serve"
+
+docker_enabled: true
+
+# Discord configuration - override in vault.yml
+# discord_dm_allowlist:
+#   - "YOUR_DISCORD_USER_ID"
+#
+# discord_guilds:
+#   "YOUR_GUILD_ID":
+#     requireMention: false
+#     channels:
+#       "CHANNEL_ID":
+#         allow: true

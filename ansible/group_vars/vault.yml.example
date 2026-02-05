@@ -1,0 +1,14 @@
+vault_openclaw_gateway_token: "your-gateway-token-here"
+vault_nvidia_api_key: "nvapi-your-key-here"
+vault_tailscale_auth_key: "tskey-auth-your-key-here"
+vault_discord_token: "your-discord-bot-token-here"
+
+discord_dm_allowlist:
+  - "YOUR_DISCORD_USER_ID"
+
+discord_guilds:
+  "YOUR_GUILD_ID":
+    requireMention: false
+    channels:
+      "CHANNEL_ID":
+        allow: true

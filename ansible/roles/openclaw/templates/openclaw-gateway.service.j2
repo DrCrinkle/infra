@@ -1,0 +1,35 @@
+[Unit]
+Description=OpenClaw Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+{% if openclaw_install_method == "git" %}
+ExecStart=/usr/bin/node {{ openclaw_git_dir }}/dist/entry.js gateway --port {{ openclaw_gateway_port }}
+{% else %}
+ExecStart=/home/{{ ansible_user }}/.npm-global/bin/openclaw gateway --port {{ openclaw_gateway_port }}
+{% endif %}
+Restart=always
+RestartSec=5
+KillMode=process
+
+Environment=HOME=/home/{{ ansible_user }}
+Environment="PATH=/home/{{ ansible_user }}/.local/share/pnpm:/home/{{ ansible_user }}/.local/bin:/home/{{ ansible_user }}/.npm-global/bin:/home/{{ ansible_user }}/bin:/usr/local/bin:/usr/bin:/bin"
+Environment=OPENCLAW_GATEWAY_PORT={{ openclaw_gateway_port }}
+Environment=OPENCLAW_GATEWAY_TOKEN={{ vault_openclaw_gateway_token }}
+Environment="OPENCLAW_SYSTEMD_UNIT=openclaw-gateway.service"
+Environment=OPENCLAW_SERVICE_MARKER=openclaw
+Environment=OPENCLAW_SERVICE_KIND=gateway
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/{{ ansible_user }}/.openclaw
+ReadWritePaths=/home/{{ ansible_user }}/workspace
+ReadWritePaths=/home/{{ ansible_user }}/workspaces
+ReadWritePaths=/tmp
+
+[Install]
+WantedBy=default.target

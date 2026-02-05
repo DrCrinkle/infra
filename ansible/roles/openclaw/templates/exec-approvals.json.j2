@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "defaults": {
+    "security": "{{ openclaw_exec_security }}",
+    "ask": "{{ openclaw_exec_ask }}",
+    "askFallback": "allowlist"
+  },
+  "agents": {
+    "main": {
+      "security": "{{ openclaw_exec_security }}",
+      "ask": "{{ openclaw_exec_ask }}",
+      "allowlist": [
+        {
+          "pattern": "/usr/bin/uname"
+        },
+        {
+          "pattern": "/usr/bin/cat"
+        },
+        {
+          "pattern": "/usr/bin/ls"
+        },
+        {
+          "pattern": "/usr/bin/grep"
+        },
+        {
+          "pattern": "/usr/bin/head"
+        },
+        {
+          "pattern": "/usr/bin/tail"
+        },
+        {
+          "pattern": "/usr/bin/wc"
+        },
+        {
+          "pattern": "/usr/bin/sort"
+        },
+        {
+          "pattern": "/usr/bin/cut"
+        },
+        {
+          "pattern": "/usr/bin/jq"
+        },
+        {
+          "pattern": "/usr/bin/df"
+        },
+        {
+          "pattern": "/usr/bin/free"
+        },
+        {
+          "pattern": "/usr/bin/uptime"
+        },
+        {
+          "pattern": "/usr/bin/whoami"
+        },
+        {
+          "pattern": "/usr/bin/hostname"
+        },
+        {
+          "pattern": "/usr/bin/date"
+        },
+        {
+          "pattern": "/usr/bin/git"
+        },
+        {
+          "pattern": "/home/{{ ansible_user }}/.npm-global/bin/*"
+        }
+      ]
+    }
+  }
+}

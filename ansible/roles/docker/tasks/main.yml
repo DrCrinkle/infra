@@ -1,0 +1,84 @@
+---
+- name: Load required kernel modules for Docker
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - ip_tables
+    - br_netfilter
+    - overlay
+  become: true
+
+- name: Ensure kernel modules load on boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/docker.conf
+    mode: '0644'
+    content: |
+      # Kernel modules required for Docker networking
+      ip_tables
+      br_netfilter
+      overlay
+  become: true
+
+- name: Install required packages for Docker
+  ansible.builtin.dnf:
+    name:
+      - dnf-plugins-core
+      - device-mapper-persistent-data
+      - lvm2
+    state: present
+  become: true
+
+- name: Add Docker repository (using EL9 for AlmaLinux 10 compatibility)
+  ansible.builtin.yum_repository:
+    name: docker-ce-stable
+    description: Docker CE Stable - $basearch
+    baseurl: https://download.docker.com/linux/centos/9/$basearch/stable
+    gpgcheck: yes
+    gpgkey: https://download.docker.com/linux/centos/gpg
+    enabled: yes
+  become: true
+
+- name: Install Docker CE
+  ansible.builtin.dnf:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    allowerasing: yes
+  become: true
+
+- name: Create Docker daemon config directory
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Configure Docker daemon for security
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    mode: '0644'
+    content: |
+      {
+        "iptables": true,
+        "ip-forward": true,
+        "userland-proxy": false,
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      }
+  become: true
+  notify: restart docker
+
+- name: Start and enable Docker
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: yes
+  become: true

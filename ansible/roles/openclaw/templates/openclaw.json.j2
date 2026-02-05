@@ -1,0 +1,97 @@
+{
+  "meta": {
+    "lastTouchedVersion": "ansible-managed"
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "nvidia": {
+        "baseUrl": "https://integrate.api.nvidia.com/v1",
+        "apiKey": "{{ vault_nvidia_api_key }}",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "deepseek/deepseek-v3-1",
+            "name": "DeepSeek V3.1",
+            "reasoning": true,
+            "input": ["text"],
+            "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+            "contextWindow": 128000,
+            "maxTokens": 8192
+          },
+          {
+            "id": "moonshotai/kimi-k2.5",
+            "name": "Kimi K2.5",
+            "reasoning": true,
+            "input": ["text"],
+            "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+            "contextWindow": 1000000,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "{{ openclaw_default_model }}"
+      },
+      "models": {
+        "anthropic/claude-sonnet-4-5": {"alias": "Sonnet"},
+        "anthropic/claude-opus-4-5": {"alias": "Opus"},
+        "nvidia/moonshotai/kimi-k2.5": {"alias": "Kimi"},
+        "nvidia/deepseek/deepseek-v3-1": {"alias": "DeepSeek"},
+        "openrouter/openrouter/free": {"alias": "OpenRouter Free"}
+      },
+      "workspace": "{{ openclaw_workspace_dir }}",
+      "compaction": {"mode": "safeguard"},
+      "maxConcurrent": 4,
+      "subagents": {"maxConcurrent": 8}
+    },
+    "list": [
+      {"id": "main", "workspace": "{{ openclaw_workspace_dir }}"},
+      {"id": "scout", "workspace": "{{ openclaw_workspaces_dir }}/scout", "tools": {"allow": ["web_search", "web_fetch", "memory_search", "memory_get"]}},
+      {"id": "pulse", "workspace": "{{ openclaw_workspaces_dir }}/pulse", "tools": {"allow": ["web_fetch"]}},
+      {"id": "rogue", "workspace": "{{ openclaw_workspaces_dir }}/rogue", "tools": {"allow": ["web_search"]}}
+    ]
+  },
+  "tools": {
+    "exec": {
+      "security": "{{ openclaw_exec_security }}",
+      "ask": "{{ openclaw_exec_ask }}"
+    },
+    "web": {
+      "search": {"enabled": true},
+      "fetch": {"enabled": true}
+    }
+  },
+  "gateway": {
+    "port": {{ openclaw_gateway_port }},
+    "mode": "local",
+    "bind": "{{ openclaw_gateway_bind }}",
+    "controlUi": {"allowInsecureAuth": false},
+    "auth": {
+      "mode": "{{ openclaw_gateway_auth_mode }}",
+      "token": "{{ vault_openclaw_gateway_token }}"
+    },
+    "trustedProxies": ["127.0.0.1", "100.64.0.0/10"],
+    "tailscale": {
+      "mode": "{{ tailscale_serve_mode | default('off') }}",
+      "resetOnExit": false
+    }
+  },
+  "channels": {
+    "discord": {
+      "enabled": true,
+      "token": "{{ vault_discord_token }}",
+      "groupPolicy": "allowlist",
+      "dm": {
+        "enabled": true,
+        "policy": "allowlist",
+        "allowFrom": {{ discord_dm_allowlist | to_json }}
+      },
+      "guilds": {{ discord_guilds | to_json }}
+    }
+  }
+}

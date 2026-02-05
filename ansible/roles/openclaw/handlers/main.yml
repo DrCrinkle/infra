@@ -1,0 +1,7 @@
+---
+- name: restart openclaw
+  ansible.builtin.systemd:
+    name: openclaw-gateway
+    state: restarted
+    scope: user
+    daemon_reload: yes

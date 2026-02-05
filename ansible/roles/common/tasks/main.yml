@@ -1,0 +1,23 @@
+---
+- name: Update package cache
+  ansible.builtin.dnf:
+    update_cache: yes
+  become: true
+
+- name: Install base packages
+  ansible.builtin.dnf:
+    name:
+      - git
+      - curl
+      - wget
+      - jq
+      - lsof
+      - python3
+    state: present
+  become: true
+
+- name: Enable lingering for user services
+  ansible.builtin.command:
+    cmd: loginctl enable-linger {{ ansible_user }}
+  become: true
+  changed_when: false

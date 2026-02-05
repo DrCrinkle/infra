@@ -1,0 +1,30 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Ansible
+*.retry
+ansible/group_vars/vault.yml
+ansible/inventory/hosts.local.yml
+
+# Secrets
+*.pem
+*.key
+.env
+.env.*
+
+# Claude
+.claude/
+.serena/
+
+# OS
+.DS_Store

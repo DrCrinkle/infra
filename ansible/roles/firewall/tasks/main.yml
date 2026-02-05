@@ -1,0 +1,72 @@
+---
+- name: Install firewalld
+  ansible.builtin.dnf:
+    name: firewalld
+    state: present
+  become: true
+
+- name: Start and enable firewalld
+  ansible.builtin.systemd:
+    name: firewalld
+    state: started
+    enabled: yes
+  become: true
+
+- name: Set default zone to drop
+  ansible.builtin.command:
+    cmd: firewall-cmd --set-default-zone=drop
+  become: true
+  changed_when: false
+
+- name: Allow SSH
+  ansible.posix.firewalld:
+    service: ssh
+    permanent: yes
+    immediate: yes
+    state: enabled
+    zone: drop
+  become: true
+
+- name: Allow Tailscale UDP port
+  ansible.posix.firewalld:
+    port: 41641/udp
+    permanent: yes
+    immediate: yes
+    state: enabled
+    zone: public
+  become: true
+
+- name: Trust Tailscale interface
+  ansible.posix.firewalld:
+    zone: trusted
+    interface: tailscale0
+    permanent: yes
+    immediate: yes
+    state: enabled
+  become: true
+  failed_when: false
+
+- name: Remove default services we don't need
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: yes
+    immediate: yes
+    state: disabled
+    zone: public
+  loop:
+    - cockpit
+    - dhcpv6-client
+  become: true
+  failed_when: false
+
+- name: Create Docker isolation direct rules
+  ansible.builtin.shell: |
+    firewall-cmd --permanent --direct --add-chain ipv4 filter DOCKER-USER 2>/dev/null || true
+    firewall-cmd --permanent --direct --add-rule ipv4 filter DOCKER-USER 0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
+    firewall-cmd --permanent --direct --add-rule ipv4 filter DOCKER-USER 0 -i lo -j ACCEPT 2>/dev/null || true
+    firewall-cmd --permanent --direct --add-rule ipv4 filter DOCKER-USER 10 -i eth0 -j DROP 2>/dev/null || true
+    firewall-cmd --reload 2>/dev/null || true
+  become: true
+  when: docker_enabled | default(true)
+  changed_when: false
+  failed_when: false

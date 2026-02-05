@@ -1,0 +1,31 @@
+---
+- name: Configure OpenClaw server
+  hosts: oci
+  gather_facts: true
+
+  roles:
+    - common
+    - firewall
+    - role: docker
+      when: docker_enabled | default(true)
+    - nodejs
+    - role: tailscale
+      when: tailscale_enabled | default(false)
+    - openclaw
+
+  post_tasks:
+    - name: Show connection info
+      ansible.builtin.debug:
+        msg: |
+          OpenClaw deployed successfully!
+          
+          Gateway: ws://127.0.0.1:{{ openclaw_gateway_port }} (loopback only)
+          Tailscale: https://{{ ansible_hostname }}.{{ tailscale_tailnet }}.ts.net
+          
+          Security architecture (4-layer defense):
+          1. Firewall: SSH + Tailscale only (drop zone default)
+          2. Docker isolation: DOCKER-USER chain blocks external access
+          3. Gateway: loopback bind + Tailscale serve
+          4. Systemd: NoNewPrivileges, PrivateTmp, ProtectSystem
+          
+          Exec security: {{ openclaw_exec_security }}
