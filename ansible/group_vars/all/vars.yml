@@ -20,6 +20,7 @@ firewall_allowed_ports:
 
 tailscale_enabled: true
 tailscale_serve_mode: "serve"
+tailscale_hostname: "openclaw"
 
 docker_enabled: true
 

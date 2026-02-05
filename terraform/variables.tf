@@ -24,3 +24,8 @@ variable "ssh_public_key" {
   description = "SSH public key for instance access"
   type        = string
 }
+
+variable "nat_instance_image_id" {
+  description = "x86 image OCID for NAT instance. Must support dnf, firewalld, iptables. Verify: oci compute image get --image-id <ocid>"
+  type        = string
+}

@@ -1,8 +1,17 @@
 ---
-- name: Update package cache
+- name: Update all system packages
   ansible.builtin.dnf:
+    name: '*'
+    state: latest
     update_cache: yes
   become: true
+  register: system_update
+
+- name: Reboot after system update
+  ansible.builtin.reboot:
+    reboot_timeout: 300
+  become: true
+  when: system_update.changed
 
 - name: Install base packages
   ansible.builtin.dnf:
@@ -13,7 +22,16 @@
       - jq
       - lsof
       - python3
+      - chrony
+      - nc
     state: present
+  become: true
+
+- name: Start and enable chrony for NTP
+  ansible.builtin.systemd:
+    name: chronyd
+    state: started
+    enabled: yes
   become: true
 
 - name: Enable lingering for user services

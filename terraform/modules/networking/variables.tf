@@ -19,3 +19,10 @@ variable "public_subnet_cidr" {
   type        = string
   default     = "10.0.0.0/24"
 }
+
+variable "public_subnet_additional_security_list_ids" {
+  description = "Additional security list OCIDs to attach to the public subnet (e.g., NAT security list for transit traffic)"
+  type        = list(string)
+  default     = []
+}
+

@@ -1,4 +1,10 @@
 ---
+- name: Install kernel-modules-extra for Docker networking support
+  ansible.builtin.dnf:
+    name: kernel-modules-extra-matched
+    state: present
+  become: true
+
 - name: Load required kernel modules for Docker
   community.general.modprobe:
     name: "{{ item }}"
@@ -81,4 +87,11 @@
     name: docker
     state: started
     enabled: yes
+  become: true
+
+- name: Add user to docker group
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: yes
   become: true

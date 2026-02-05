@@ -9,7 +9,13 @@ resource "oci_core_subnet" "public" {
   vcn_id                     = oci_core_vcn.this.id
   display_name               = "Public"
   cidr_block                 = var.public_subnet_cidr
-  prohibit_public_ip_on_vnic = true
+  prohibit_public_ip_on_vnic = false
+
+  # Attach default security list plus any additional lists (e.g., NAT security list for transit traffic)
+  security_list_ids = concat(
+    [oci_core_vcn.this.default_security_list_id],
+    var.public_subnet_additional_security_list_ids
+  )
 }
 
 resource "oci_core_internet_gateway" "this" {
@@ -19,11 +25,6 @@ resource "oci_core_internet_gateway" "this" {
   enabled        = true
 }
 
-resource "oci_core_nat_gateway" "this" {
-  compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.this.id
-  display_name   = "NAT Gateway"
-}
 
 resource "oci_core_default_route_table" "this" {
   manage_default_resource_id = oci_core_vcn.this.default_route_table_id
@@ -32,7 +33,7 @@ resource "oci_core_default_route_table" "this" {
   route_rules {
     destination       = "0.0.0.0/0"
     destination_type  = "CIDR_BLOCK"
-    network_entity_id = oci_core_nat_gateway.this.id
+    network_entity_id = oci_core_internet_gateway.this.id
   }
 }
 

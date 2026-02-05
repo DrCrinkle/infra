@@ -27,12 +27,43 @@
     enabled: yes
   become: true
 
+- name: Ensure chrony is running for NTP sync
+  ansible.builtin.systemd:
+    name: chronyd
+    state: started
+    enabled: yes
+  become: true
+  failed_when: false
+
+- name: Force NTP time sync before Tailscale auth
+  ansible.builtin.command: chronyc makestep
+  become: true
+  changed_when: false
+  failed_when: false
+
+- name: Check clock offset
+  ansible.builtin.shell: |
+    chronyc tracking | grep "Last offset" | awk '{print $4}' | tr -d '-'
+  register: clock_offset
+  changed_when: false
+  failed_when: false
+
+- name: Warn if clock offset is high
+  ansible.builtin.debug:
+    msg: "WARNING: Clock offset is {{ clock_offset.stdout | default('unknown') }} seconds. Tailscale auth may fail if > 5s."
+  when: clock_offset.stdout is defined and clock_offset.stdout != '' and (clock_offset.stdout | float) > 1
+
 - name: Authenticate Tailscale
   ansible.builtin.command:
-    cmd: tailscale up --authkey={{ vault_tailscale_auth_key }}
+    cmd: tailscale up --authkey={{ vault_tailscale_auth_key }} --hostname={{ tailscale_hostname | default('openclaw') }} --force-reauth
   become: true
   when: vault_tailscale_auth_key is defined
   no_log: true
+
+- name: Set Tailscale operator for non-root serve access
+  ansible.builtin.command:
+    cmd: tailscale set --operator={{ ansible_user }}
+  become: true
 
 - name: Allow Tailscale through firewall
   ansible.posix.firewalld:
@@ -43,3 +74,22 @@
     state: enabled
   become: true
   failed_when: false
+
+- name: Verify Tailscale connectivity
+  ansible.builtin.command: tailscale status
+  become: true
+  register: tailscale_status
+  changed_when: false
+  failed_when: false
+
+- name: Run Tailscale network check
+  ansible.builtin.command: tailscale netcheck
+  become: true
+  register: tailscale_netcheck
+  changed_when: false
+  failed_when: false
+
+- name: Display Tailscale netcheck results
+  ansible.builtin.debug:
+    msg: "{{ tailscale_netcheck.stdout_lines | default(['netcheck not available']) }}"
+  when: tailscale_netcheck.rc == 0

@@ -1,0 +1,128 @@
+#!/bin/bash
+set -e
+
+# =============================================================================
+# NAT Configuration
+# =============================================================================
+
+echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.d/98-nat.conf
+sysctl -w net.ipv4.ip_forward=1
+
+for i in /proc/sys/net/ipv4/conf/*/rp_filter; do
+  echo 0 > "$i"
+done
+echo "net.ipv4.conf.all.rp_filter = 0" >> /etc/sysctl.d/98-nat.conf
+echo "net.ipv4.conf.default.rp_filter = 0" >> /etc/sysctl.d/98-nat.conf
+
+iptables -t nat -A POSTROUTING -o ens3 -s ${private_subnet_cidr} -j MASQUERADE
+
+if command -v iptables-save &> /dev/null; then
+  iptables-save > /etc/sysconfig/iptables
+fi
+
+if systemctl list-unit-files | grep -q iptables; then
+  systemctl enable iptables
+fi
+
+# =============================================================================
+# Failover Monitoring
+# =============================================================================
+
+dnf install -y python3-oci-cli 2>/dev/null || yum install -y python3-oci-cli 2>/dev/null || true
+
+cat > /usr/local/bin/nat-failover.sh << 'FAILOVER_SCRIPT'
+#!/bin/bash
+PRIMARY_IP="${primary_private_ip}"
+ROUTE_TABLE_ID="${route_table_id}"
+CHECK_INTERVAL=10
+FAIL_THRESHOLD=3
+fail_count=0
+
+get_my_private_ip_id() {
+  local instance_id=$(curl -sH "Authorization: Bearer Oracle" http://169.254.169.254/opc/v2/instance/id)
+  local compartment_id=$(curl -sH "Authorization: Bearer Oracle" http://169.254.169.254/opc/v2/instance/compartmentId)
+  
+  oci network private-ip list \
+    --compartment-id "$compartment_id" \
+    --auth instance_principal \
+    --query "data[0].id" \
+    --raw-output 2>/dev/null
+}
+
+wait_for_iam_propagation() {
+  local max_attempts=20
+  local attempt=1
+  logger -t nat-failover "Waiting for IAM policy propagation (can take 1-5 minutes)..."
+  
+  while [ $attempt -le $max_attempts ]; do
+    MY_PRIVATE_IP_ID=$(get_my_private_ip_id)
+    if [ -n "$MY_PRIVATE_IP_ID" ]; then
+      logger -t nat-failover "IAM propagated after $attempt attempts"
+      return 0
+    fi
+    logger -t nat-failover "IAM not ready, retrying ($attempt/$max_attempts)..."
+    sleep 15
+    ((attempt++))
+  done
+  return 1
+}
+
+wait_for_iam_propagation
+
+if [ -z "$MY_PRIVATE_IP_ID" ]; then
+  logger -t nat-failover "ERROR: IAM policy not propagated after 5 minutes. Check dynamic group configuration."
+  exit 1
+fi
+
+logger -t nat-failover "Starting failover monitor (primary=$PRIMARY_IP, my_ip_id=$MY_PRIVATE_IP_ID)"
+
+while true; do
+  if ping -c 1 -W 2 "$PRIMARY_IP" > /dev/null 2>&1; then
+    fail_count=0
+  else
+    ((fail_count++))
+    logger -t nat-failover "Primary NAT unreachable ($fail_count/$FAIL_THRESHOLD)"
+    
+    if [ $fail_count -ge $FAIL_THRESHOLD ]; then
+      logger -t nat-failover "Initiating failover to standby"
+      
+      oci network route-table update \
+        --rt-id "$ROUTE_TABLE_ID" \
+        --route-rules "[{\"destination\":\"0.0.0.0/0\",\"destinationType\":\"CIDR_BLOCK\",\"networkEntityId\":\"$MY_PRIVATE_IP_ID\"}]" \
+        --force \
+        --auth instance_principal 2>&1 | logger -t nat-failover
+      
+      if [ $? -eq 0 ]; then
+        logger -t nat-failover "Failover complete - now active"
+        # Stay running but stop checking (we're now primary)
+        while true; do sleep 3600; done
+      fi
+    fi
+  fi
+  sleep $CHECK_INTERVAL
+done
+FAILOVER_SCRIPT
+
+chmod +x /usr/local/bin/nat-failover.sh
+
+cat > /etc/systemd/system/nat-failover.service << 'SERVICE'
+[Unit]
+Description=NAT Failover Monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/nat-failover.sh
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+systemctl daemon-reload
+systemctl enable nat-failover.service
+systemctl start nat-failover.service
+
+echo "NAT standby configuration complete"
