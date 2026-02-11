@@ -19,6 +19,11 @@ output "public_ip" {
   value       = oci_core_instance.nat.public_ip
 }
 
+output "ipv6_address" {
+  description = "IPv6 address of the primary NAT instance"
+  value       = try(data.oci_core_vnic.nat.ipv6addresses[0], null)
+}
+
 output "security_list_id" {
   description = "OCID of the NAT security list"
   value       = oci_core_security_list.nat.id

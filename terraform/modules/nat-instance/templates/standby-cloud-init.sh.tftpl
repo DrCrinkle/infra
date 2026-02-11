@@ -14,14 +14,98 @@ done
 echo "net.ipv4.conf.all.rp_filter = 0" >> /etc/sysctl.d/98-nat.conf
 echo "net.ipv4.conf.default.rp_filter = 0" >> /etc/sysctl.d/98-nat.conf
 
-iptables -t nat -A POSTROUTING -o ens3 -s ${private_subnet_cidr} -j MASQUERADE
+cat >> /etc/sysctl.d/98-nat.conf << 'SYSCTL'
+net.core.default_qdisc = fq_codel
+net.core.netdev_max_backlog = 8192
+net.netfilter.nf_conntrack_max = 131072
+net.netfilter.nf_conntrack_tcp_timeout_established = 600
+net.netfilter.nf_conntrack_tcp_timeout_time_wait = 30
+net.netfilter.nf_conntrack_udp_timeout = 30
+net.netfilter.nf_conntrack_udp_timeout_stream = 120
+SYSCTL
 
-if command -v iptables-save &> /dev/null; then
-  iptables-save > /etc/sysconfig/iptables
+modprobe nf_conntrack 2>/dev/null || true
+sysctl -p /etc/sysctl.d/98-nat.conf 2>/dev/null || true
+
+MEM_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+CONNTRACK_MAX=$((MEM_KB / 8))
+if [ "$CONNTRACK_MAX" -lt 32768 ]; then
+  CONNTRACK_MAX=32768
+fi
+if [ "$CONNTRACK_MAX" -gt 262144 ]; then
+  CONNTRACK_MAX=262144
+fi
+CONNTRACK_HASHSIZE=$((CONNTRACK_MAX / 4))
+sysctl -w net.netfilter.nf_conntrack_max="$CONNTRACK_MAX" 2>/dev/null || true
+echo "net.netfilter.nf_conntrack_max = $CONNTRACK_MAX" >> /etc/sysctl.d/98-nat.conf
+if [ -w /sys/module/nf_conntrack/parameters/hashsize ]; then
+  echo "$CONNTRACK_HASHSIZE" > /sys/module/nf_conntrack/parameters/hashsize || true
 fi
 
-if systemctl list-unit-files | grep -q iptables; then
-  systemctl enable iptables
+DEFAULT_IF=$(ip route get 1.1.1.1 | grep -oP 'dev \K\S+' | head -1)
+if [ -z "$DEFAULT_IF" ]; then
+  DEFAULT_IF=$(ip route show default | grep -oP 'dev \K\S+' | head -1)
+fi
+if [ -z "$DEFAULT_IF" ]; then
+  echo "ERROR: Could not detect default interface" >&2
+  exit 1
+fi
+
+if ! command -v nft &> /dev/null; then
+  dnf install -y nftables 2>/dev/null || yum install -y nftables 2>/dev/null || true
+fi
+
+if ! command -v ethtool &> /dev/null; then
+  dnf install -y ethtool 2>/dev/null || yum install -y ethtool 2>/dev/null || true
+fi
+
+modprobe nf_flow_table 2>/dev/null || true
+modprobe nf_flow_table_ipv4 2>/dev/null || true
+
+if command -v nft &> /dev/null; then
+  cat > /etc/nftables/nat.nft << NFTEOF
+table ip nat {
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        ip saddr ${private_subnet_cidr} oifname "$DEFAULT_IF" masquerade
+    }
+}
+
+table inet filter {
+    flowtable f {
+        hook ingress priority 0;
+        devices = { $${DEFAULT_IF} };
+    }
+
+    chain forward {
+        type filter hook forward priority 0; policy accept;
+        ip protocol { tcp, udp } flow add @f
+        ip saddr ${private_subnet_cidr} oifname "$DEFAULT_IF" tcp flags syn tcp option maxseg size set rt mtu
+    }
+}
+NFTEOF
+
+  touch /etc/sysconfig/nftables.conf
+  grep -qF 'include "/etc/nftables/nat.nft"' /etc/sysconfig/nftables.conf || echo 'include "/etc/nftables/nat.nft"' >> /etc/sysconfig/nftables.conf
+  systemctl enable --now nftables
+elif command -v iptables &> /dev/null; then
+  iptables -t nat -A POSTROUTING -o "$DEFAULT_IF" -s ${private_subnet_cidr} -j MASQUERADE
+  iptables -t mangle -A FORWARD -o "$DEFAULT_IF" -p tcp --tcp-flags SYN,RST SYN -s ${private_subnet_cidr} -j TCPMSS --clamp-mss-to-pmtu
+
+  if command -v iptables-save &> /dev/null; then
+    iptables-save > /etc/sysconfig/iptables
+  fi
+
+  if systemctl list-unit-files | grep -q iptables; then
+    systemctl enable iptables
+  fi
+else
+  echo "ERROR: Neither nftables nor iptables available" >&2
+  exit 1
+fi
+
+if command -v ethtool &> /dev/null; then
+  ethtool -K "$DEFAULT_IF" gro on gso on tso on rx on tx on 2>/dev/null || true
 fi
 
 # =============================================================================

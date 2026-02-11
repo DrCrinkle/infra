@@ -53,11 +53,26 @@
     msg: "WARNING: Clock offset is {{ clock_offset.stdout | default('unknown') }} seconds. Tailscale auth may fail if > 5s."
   when: clock_offset.stdout is defined and clock_offset.stdout != '' and (clock_offset.stdout | float) > 1
 
+- name: Detect Tailscale backend state
+  ansible.builtin.shell: |
+    set -o pipefail
+    tailscale status --json 2>/dev/null | jq -r '.BackendState // "NeedsLogin"' || echo "NeedsLogin"
+  args:
+    executable: /bin/bash
+  become: true
+  register: tailscale_backend_state
+  changed_when: false
+  failed_when: false
+
 - name: Authenticate Tailscale
   ansible.builtin.command:
-    cmd: tailscale up --authkey={{ vault_tailscale_auth_key }} --hostname={{ tailscale_hostname | default('openclaw') }} --force-reauth
+    cmd: >-
+      tailscale up --authkey={{ vault_tailscale_auth_key }} --hostname={{ tailscale_hostname | default('openclaw') }}
+      {% if tailscale_force_reauth | default(false) %} --force-reauth{% endif %}
   become: true
-  when: vault_tailscale_auth_key is defined
+  when:
+    - vault_tailscale_auth_key is defined
+    - tailscale_backend_state.stdout | trim != "Running"
   no_log: true
 
 - name: Set Tailscale operator for non-root serve access

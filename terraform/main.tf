@@ -37,13 +37,14 @@ module "networking" {
 module "nat_instance" {
   source = "./modules/nat-instance"
 
-  compartment_id      = var.compartment_id
-  availability_domain = "mBSv:US-SANJOSE-1-AD-1"
-  subnet_id           = module.networking.public_subnet_id
-  vcn_id              = module.networking.vcn_id
-  ssh_public_key      = var.ssh_public_key
-  private_subnet_cidr = local.private_subnet_cidr
-  image_id            = var.nat_instance_image_id
+  compartment_id           = var.compartment_id
+  availability_domain      = "mBSv:US-SANJOSE-1-AD-1"
+  subnet_id                = module.networking.public_subnet_id
+  vcn_id                   = module.networking.vcn_id
+  ssh_public_key           = var.ssh_public_key
+  private_subnet_cidr      = local.private_subnet_cidr
+  private_subnet_ipv6_cidr = cidrsubnet(module.networking.vcn_ipv6cidr_blocks[0], 8, 1)
+  image_id                 = var.nat_instance_image_id
 
   # HA mode (optional) - uses both free tier x86 instances
   # enable_ha      = true
@@ -64,6 +65,25 @@ resource "oci_core_route_table" "private" {
     destination_type  = "CIDR_BLOCK"
     network_entity_id = module.nat_instance.private_ip_id
   }
+
+  # OCI services (yum repos, Object Storage, etc.) bypass NAT via service gateway
+  route_rules {
+    destination       = module.networking.all_services_cidr
+    destination_type  = "SERVICE_CIDR_BLOCK"
+    network_entity_id = module.networking.service_gateway_id
+  }
+
+  # Native IPv6 egress via internet gateway (bypasses NAT)
+  route_rules {
+    destination       = "::/0"
+    destination_type  = "CIDR_BLOCK"
+    network_entity_id = module.networking.internet_gateway_id
+  }
+
+  # NOTE: NAT64 prefix (64:ff9b::/96) routing is configured at the OS level
+  # on private subnet instances, not in OCI route tables. OCI doesn't support
+  # IPv6 route rules targeting a VNIC private IP. Configure via:
+  #   ip -6 route add 64:ff9b::/96 via <NAT_INSTANCE_IPV6_ADDR>
 }
 
 resource "oci_core_security_list" "private" {
@@ -73,6 +93,14 @@ resource "oci_core_security_list" "private" {
 
   egress_security_rules {
     destination      = "0.0.0.0/0"
+    destination_type = "CIDR_BLOCK"
+    protocol         = "all"
+    stateless        = false
+  }
+
+  # IPv6 egress
+  egress_security_rules {
+    destination      = "::/0"
     destination_type = "CIDR_BLOCK"
     protocol         = "all"
     stateless        = false
@@ -113,6 +141,45 @@ resource "oci_core_security_list" "private" {
       code = -1
     }
   }
+
+  # IPv6 SSH from VCN
+  ingress_security_rules {
+    protocol    = "6"
+    source      = module.networking.vcn_ipv6cidr_blocks[0]
+    source_type = "CIDR_BLOCK"
+    stateless   = false
+
+    tcp_options {
+      min = 22
+      max = 22
+    }
+  }
+
+  # ICMPv6 from VCN (destination unreachable)
+  ingress_security_rules {
+    protocol    = "58"
+    source      = module.networking.vcn_ipv6cidr_blocks[0]
+    source_type = "CIDR_BLOCK"
+    stateless   = false
+
+    icmp_options {
+      type = 1
+      code = -1
+    }
+  }
+
+  # ICMPv6 packet too big
+  ingress_security_rules {
+    protocol    = "58"
+    source      = "::/0"
+    source_type = "CIDR_BLOCK"
+    stateless   = false
+
+    icmp_options {
+      type = 2
+      code = 0
+    }
+  }
 }
 
 resource "oci_core_subnet" "private" {
@@ -120,6 +187,7 @@ resource "oci_core_subnet" "private" {
   vcn_id                     = module.networking.vcn_id
   display_name               = "Private"
   cidr_block                 = local.private_subnet_cidr
+  ipv6cidr_block             = cidrsubnet(module.networking.vcn_ipv6cidr_blocks[0], 8, 1)
   prohibit_public_ip_on_vnic = true
   route_table_id             = oci_core_route_table.private.id
   security_list_ids          = [oci_core_security_list.private.id]
@@ -133,7 +201,7 @@ resource "oci_core_subnet" "private" {
 
 resource "time_sleep" "wait_for_nat_cloudinit" {
   depends_on      = [module.nat_instance]
-  create_duration = "90s"
+  create_duration = "300s"
 }
 
 # =============================================================================
@@ -164,6 +232,7 @@ resource "oci_core_instance" "openclaw" {
   create_vnic_details {
     subnet_id        = oci_core_subnet.private.id
     assign_public_ip = false
+    assign_ipv6ip    = true
   }
 
   metadata = {

@@ -2,6 +2,7 @@ resource "oci_core_vcn" "this" {
   compartment_id = var.compartment_id
   display_name   = var.vcn_name
   cidr_blocks    = var.vcn_cidr_blocks
+  is_ipv6enabled = true
 }
 
 resource "oci_core_subnet" "public" {
@@ -9,6 +10,7 @@ resource "oci_core_subnet" "public" {
   vcn_id                     = oci_core_vcn.this.id
   display_name               = "Public"
   cidr_block                 = var.public_subnet_cidr
+  ipv6cidr_block             = cidrsubnet(oci_core_vcn.this.ipv6cidr_blocks[0], 8, 0)
   prohibit_public_ip_on_vnic = false
 
   # Attach default security list plus any additional lists (e.g., NAT security list for transit traffic)
@@ -34,6 +36,34 @@ resource "oci_core_default_route_table" "this" {
     destination       = "0.0.0.0/0"
     destination_type  = "CIDR_BLOCK"
     network_entity_id = oci_core_internet_gateway.this.id
+  }
+
+  route_rules {
+    destination       = "::/0"
+    destination_type  = "CIDR_BLOCK"
+    network_entity_id = oci_core_internet_gateway.this.id
+  }
+}
+
+# =============================================================================
+# Service Gateway - OCI service traffic bypasses NAT instance
+# =============================================================================
+
+data "oci_core_services" "object_storage" {
+  filter {
+    name   = "name"
+    values = ["OCI .* Object Storage"]
+    regex  = true
+  }
+}
+
+resource "oci_core_service_gateway" "this" {
+  compartment_id = var.compartment_id
+  vcn_id         = oci_core_vcn.this.id
+  display_name   = "Service Gateway"
+
+  services {
+    service_id = data.oci_core_services.object_storage.services[0].id
   }
 }
 

@@ -51,3 +51,9 @@ variable "route_table_id" {
   type        = string
   default     = null
 }
+
+variable "private_subnet_ipv6_cidr" {
+  description = "IPv6 CIDR of the private subnet (for NAT64 traffic)"
+  type        = string
+  default     = null
+}

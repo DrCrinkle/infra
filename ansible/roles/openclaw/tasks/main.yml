@@ -28,6 +28,14 @@
     pnpm build
   when: openclaw_install_method == "git"
 
+- name: Symlink openclaw to PATH
+  ansible.builtin.file:
+    src: "{{ openclaw_git_dir }}/openclaw.mjs"
+    dest: /usr/local/bin/openclaw
+    state: link
+  become: true
+  when: openclaw_install_method == "git"
+
 - name: Create openclaw directories
   ansible.builtin.file:
     path: "{{ item }}"

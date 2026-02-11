@@ -21,6 +21,11 @@ output "nat_instance_ocid" {
   value       = module.nat_instance.instance_id
 }
 
+output "nat_instance_ipv6_address" {
+  description = "IPv6 address of NAT instance (NAT64 gateway)"
+  value       = module.nat_instance.ipv6_address
+}
+
 output "nat_instance_security_list_id" {
   description = "OCID of NAT instance security list"
   value       = module.nat_instance.security_list_id
