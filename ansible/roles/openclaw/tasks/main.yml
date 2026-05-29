@@ -63,12 +63,17 @@
     mode: '0600'
   notify: restart openclaw
 
-- name: Deploy systemd service
-  ansible.builtin.template:
-    src: openclaw-gateway.service.j2
-    dest: ~/.config/systemd/user/openclaw-gateway.service
-    mode: '0644'
-  notify: restart openclaw
+# OpenClaw owns its own systemd user unit: `openclaw gateway install` generates it
+# and the gateway rewrites it on every self-update (version stamp, EnvironmentFile,
+# StartLimit*). We do NOT template it — Ansible would only create drift that the next
+# update clobbers. The `creates:` guard makes this idempotent and a no-op once the
+# unit exists. NOTE: requires a working OpenClaw CLI (see global-agent prerequisite).
+- name: Install gateway systemd unit (openclaw-owned)
+  ansible.builtin.command:
+    cmd: "{{ openclaw_git_dir }}/openclaw.mjs gateway install"
+    creates: ~/.config/systemd/user/openclaw-gateway.service
+  environment:
+    PATH: "{{ ansible_env.HOME }}/.npm-global/bin:{{ ansible_env.PATH }}"
 
 - name: Enable and start openclaw gateway
   ansible.builtin.systemd:
