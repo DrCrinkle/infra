@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly pnpm store prune (reclaims unreferenced packages from the global store)
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

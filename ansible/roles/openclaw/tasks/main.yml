@@ -77,3 +77,29 @@
     enabled: yes
     scope: user
     daemon_reload: yes
+
+# Weekly maintenance: the pnpm store accumulates every version of every package
+# across all projects and never GCs on its own — prune it so the boot volume
+# doesn't silently fill (git install only; npm install doesn't use the pnpm store).
+- name: Deploy pnpm store prune service
+  ansible.builtin.template:
+    src: pnpm-store-prune.service.j2
+    dest: ~/.config/systemd/user/pnpm-store-prune.service
+    mode: '0644'
+  when: openclaw_install_method == "git"
+
+- name: Deploy pnpm store prune timer
+  ansible.builtin.template:
+    src: pnpm-store-prune.timer.j2
+    dest: ~/.config/systemd/user/pnpm-store-prune.timer
+    mode: '0644'
+  when: openclaw_install_method == "git"
+
+- name: Enable and start pnpm store prune timer
+  ansible.builtin.systemd:
+    name: pnpm-store-prune.timer
+    state: started
+    enabled: yes
+    scope: user
+    daemon_reload: yes
+  when: openclaw_install_method == "git"

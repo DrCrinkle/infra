@@ -1,0 +1,18 @@
+[Unit]
+Description=Prune unreferenced packages from the pnpm content-addressable store
+Documentation=https://pnpm.io/cli/store#prune
+
+[Service]
+Type=oneshot
+Environment=HOME=/home/{{ ansible_user }}
+Environment="PATH=/home/{{ ansible_user }}/.local/share/pnpm:/home/{{ ansible_user }}/.local/bin:/home/{{ ansible_user }}/.npm-global/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/bin/env pnpm store prune
+
+# Hardening: ProtectSystem=strict keeps /usr,/etc,/boot read-only and PrivateTmp
+# isolates /tmp. pnpm writes an atomic-rename probe file to HOME root during prune,
+# so HOME must be writable — ProtectHome can't be used here (it would force /home
+# read-only and break the probe). The unit only ever runs a fixed maintenance command.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/{{ ansible_user }}
