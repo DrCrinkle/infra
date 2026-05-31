@@ -1,0 +1,23 @@
+{
+  "gateway": {
+    "port": {{ openclaw_gateway_port }},
+    "mode": "local",
+    "bind": "{{ openclaw_gateway_bind }}",
+    "controlUi": {"allowInsecureAuth": false},
+    "auth": {
+      "mode": "{{ openclaw_gateway_auth_mode }}",
+      "token": "{{ vault_openclaw_gateway_token }}"
+    },
+    "trustedProxies": ["127.0.0.1"],
+    "tailscale": {
+      "mode": "{{ tailscale_serve_mode | default('off') }}",
+      "resetOnExit": false
+    }
+  },
+  "tools": {
+    "exec": {
+      "security": "{{ openclaw_exec_security }}",
+      "ask": "{{ openclaw_exec_ask }}"
+    }
+  }
+}

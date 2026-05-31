@@ -11,7 +11,8 @@
     - nodejs
     - role: tailscale
       when: tailscale_enabled | default(false)
-    - openclaw
+    - role: openclaw
+      tags: ['openclaw']
 
   post_tasks:
     - name: Get Tailscale status as JSON

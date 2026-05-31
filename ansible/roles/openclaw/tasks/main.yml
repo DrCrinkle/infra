@@ -49,18 +49,63 @@
     - "{{ openclaw_workspaces_dir }}/rogue"
     - ~/.config/systemd/user
 
-- name: Deploy openclaw config
+# OpenClaw owns openclaw.json at runtime — the wizard, UI, and workflow tooling
+# rewrite it constantly (agents, model rosters, channels, tool policies, plugins,
+# skills, cron, sessions). So we SEED it only when absent (fresh host bootstrap)
+# and never overwrite an existing file. Ongoing security invariants are enforced
+# by the deep-merge task below, not by re-templating the whole file.
+- name: Seed openclaw config (only if absent — never clobbers OpenClaw-managed state)
   ansible.builtin.template:
     src: openclaw.json.j2
     dest: "{{ openclaw_state_dir }}/openclaw.json"
     mode: '0600'
+    force: false
   notify: restart openclaw
 
-- name: Deploy exec-approvals config
+# exec-approvals.json accumulates runtime-approved commands — seed only, same reason.
+- name: Seed exec-approvals config (only if absent)
   ansible.builtin.template:
     src: exec-approvals.json.j2
     dest: "{{ openclaw_state_dir }}/exec-approvals.json"
     mode: '0600'
+    force: false
+  notify: restart openclaw
+
+# Enforce ONLY the security-invariant keys Ansible owns (gateway bind/auth/proxies,
+# exec security mode) by deep-merging them into the live config, preserving every
+# OpenClaw-managed section. jq `*` recursively merges objects (managed side wins) and
+# leaves untouched keys intact. Idempotent: normalized compare gates changed/restart.
+- name: Render Ansible-owned security invariants
+  ansible.builtin.set_fact:
+    openclaw_invariants: "{{ lookup('template', 'openclaw.invariants.json.j2') }}"
+  no_log: true
+
+- name: Enforce openclaw security invariants (deep-merge, non-destructive)
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -euo pipefail
+      cd {{ openclaw_state_dir | quote }}
+      printf '%s' {{ openclaw_invariants | quote }} > .invariants.json
+      jq -e . .invariants.json >/dev/null
+      jq --slurpfile inv .invariants.json '. * $inv[0]' openclaw.json > .merged.json
+      if diff -q <(jq -S . openclaw.json) <(jq -S . .merged.json) >/dev/null; then
+        rm -f .invariants.json .merged.json
+        echo NOCHANGE
+      else
+      {% if not ansible_check_mode %}
+        mv .merged.json openclaw.json
+        chmod 600 openclaw.json
+      {% else %}
+        rm -f .merged.json
+      {% endif %}
+        rm -f .invariants.json
+        echo CHANGED
+      fi
+  register: openclaw_invariants_merge
+  changed_when: "'CHANGED' in openclaw_invariants_merge.stdout"
+  check_mode: false
+  no_log: true
   notify: restart openclaw
 
 # OpenClaw owns its own systemd user unit: `openclaw gateway install` generates it
