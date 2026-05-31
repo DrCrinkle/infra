@@ -70,3 +70,36 @@
   when: docker_enabled | default(true)
   changed_when: false
   failed_when: false
+
+# OpenClaw is the NAT router for the private subnet (replaced the dedicated NAT
+# instance 2026-05-30). Requires VNIC skip_source_dest_check = true (set in Terraform).
+- name: Enable IPv4 forwarding for NAT routing
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_file: /etc/sysctl.d/99-openclaw-nat.conf
+    sysctl_set: yes
+    state: present
+    reload: yes
+  become: true
+  when: openclaw_nat_router | default(true)
+
+- name: Allow intra-zone forwarding on the public-facing drop zone
+  ansible.posix.firewalld:
+    zone: drop
+    forward: yes
+    permanent: yes
+    immediate: yes
+    state: enabled
+  become: true
+  when: openclaw_nat_router | default(true)
+
+- name: Masquerade private-subnet egress through this host
+  ansible.posix.firewalld:
+    zone: drop
+    rich_rule: 'rule family="ipv4" source address="{{ private_subnet_cidr }}" masquerade'
+    permanent: yes
+    immediate: yes
+    state: enabled
+  become: true
+  when: openclaw_nat_router | default(true)

@@ -1,0 +1,6 @@
+---
+# Validate the full sshd config before reloading; a syntax error fails the play
+# rather than reloading a broken config and risking SSH lockout.
+- name: Reload sshd
+  ansible.builtin.shell: 'sshd -t && systemctl reload sshd'
+  become: true

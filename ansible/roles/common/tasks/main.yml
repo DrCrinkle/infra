@@ -40,104 +40,28 @@
   become: true
   changed_when: false
 
-# NAT64/DNS64 routing
-- name: Initialize NAT64/DNS64 address overrides
-  ansible.builtin.set_fact:
-    resolved_nat_instance_ipv4: "{{ nat_instance_ipv4 | default('') | trim }}"
-    resolved_nat_instance_ipv6: "{{ nat_instance_ipv6 | default('') | trim }}"
-
-- name: Read Terraform outputs for NAT addresses
-  ansible.builtin.command:
-    cmd: terraform output -json
-    chdir: "{{ playbook_dir }}/../terraform"
-  delegate_to: localhost
-  become: false
-  register: terraform_outputs
-  changed_when: false
+# Host hardening
+# (NAT64/DNS64 routing removed 2026-05-30: OpenClaw moved to the public subnet with
+#  native dual-stack via the Internet Gateway; the dedicated NAT instance is gone.)
+- name: Disable rpcbind (no NFS in use — removes the port-111 attack surface)
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: no
+  loop:
+    - rpcbind.socket
+    - rpcbind.service
+  become: true
   failed_when: false
-  run_once: true
-  when: resolved_nat_instance_ipv4 | length == 0 or resolved_nat_instance_ipv6 | length == 0
 
-- name: Resolve NAT instance IPv4 from Terraform outputs
-  ansible.builtin.set_fact:
-    resolved_nat_instance_ipv4: "{{ (terraform_outputs.stdout | from_json).nat_instance_private_ip.value | default('') | string | trim }}"
-  when:
-    - resolved_nat_instance_ipv4 | length == 0
-    - terraform_outputs is defined
-    - terraform_outputs.rc == 0
-    - terraform_outputs.stdout is defined
-    - terraform_outputs.stdout | trim | length > 0
-
-- name: Resolve NAT instance IPv6 from Terraform outputs
-  ansible.builtin.set_fact:
-    resolved_nat_instance_ipv6: "{{ (terraform_outputs.stdout | from_json).nat_instance_ipv6_address.value | default('') | string | trim }}"
-  when:
-    - resolved_nat_instance_ipv6 | length == 0
-    - terraform_outputs is defined
-    - terraform_outputs.rc == 0
-    - terraform_outputs.stdout is defined
-    - terraform_outputs.stdout | trim | length > 0
-
-- name: Detect active NetworkManager connection profile
-  ansible.builtin.shell:
-    cmd: |
-      set -o pipefail
-      default_if=$(ip route show default | awk '/default/ {print $5; exit}')
-      if [ -z "$default_if" ]; then
-        default_if=$(ip -6 route show default | awk '/default/ {print $5; exit}')
-      fi
-      if [ -n "$default_if" ]; then
-        nmcli -t -f NAME,DEVICE connection show --active | awk -F: -v dev="$default_if" '$2 == dev {print $1; exit}'
-      fi
-    executable: /bin/bash
-  register: detected_network_connection
-  changed_when: false
-  failed_when: false
-  when: network_connection_name | default('') | length == 0
-
-- name: Set connection profile for NAT64/DNS64 updates
-  ansible.builtin.set_fact:
-    nmcli_connection_name: >-
-      {{ (network_connection_name | default('') | trim)
-      if (network_connection_name | default('') | trim | length > 0)
-      else (detected_network_connection.stdout | default('') | trim) }}
-
-- name: Fail if NetworkManager connection profile is unavailable
-  ansible.builtin.fail:
-    msg: >-
-      Could not determine active NetworkManager connection profile.
-      Set network_connection_name in group_vars/all/vars.yml.
-  when:
-    - nmcli_connection_name | length == 0
-    - resolved_nat_instance_ipv6 | length > 0 or resolved_nat_instance_ipv4 | length > 0
-
-- name: Warn when NAT64/DNS64 addresses are unavailable
-  ansible.builtin.debug:
-    msg: >-
-      Skipping NAT64/DNS64 network changes: unable to resolve NAT instance IPv4/IPv6.
-      Ensure terraform outputs are accessible or set nat_instance_ipv4/nat_instance_ipv6 overrides.
-  when: resolved_nat_instance_ipv6 | length == 0 and resolved_nat_instance_ipv4 | length == 0
-
-- name: Add NAT64 static route via NAT instance
-  ansible.builtin.command:
-    cmd: nmcli connection modify "{{ nmcli_connection_name }}" +ipv6.routes "64:ff9b::/96 {{ resolved_nat_instance_ipv6 }}"
+- name: Harden SSH — disable root login (access is via the unprivileged user + sudo)
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/99-hardening.conf
+    content: |
+      # Managed by Ansible (common role). Root SSH is disabled — use {{ ansible_user }} + sudo.
+      PermitRootLogin no
+    owner: root
+    group: root
+    mode: "0600"
   become: true
-  register: nat64_route
-  changed_when: nat64_route.rc == 0
-  failed_when: nat64_route.rc != 0 and 'already' not in nat64_route.stderr
-  when: resolved_nat_instance_ipv6 | length > 0
-
-- name: Set DNS64 resolver (NAT instance unbound)
-  ansible.builtin.command:
-    cmd: nmcli connection modify "{{ nmcli_connection_name }}" ipv4.dns "{{ resolved_nat_instance_ipv4 }}" ipv4.ignore-auto-dns yes
-  become: true
-  register: dns64_config
-  changed_when: dns64_config.rc == 0
-  when: resolved_nat_instance_ipv4 | length > 0
-
-- name: Apply network config changes
-  ansible.builtin.command:
-    cmd: nmcli connection up "{{ nmcli_connection_name }}"
-  become: true
-  changed_when: false
-  when: (nat64_route is changed) or (dns64_config is changed)
+  notify: Reload sshd

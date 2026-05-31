@@ -18,6 +18,11 @@ openclaw_workspaces_dir: "/home/{{ ansible_user }}/workspaces"
 firewall_allowed_ports:
   - "22/tcp"
 
+# OpenClaw acts as the NAT router for the private subnet (replaced the dedicated
+# NAT micro instance on 2026-05-30). Set false on hosts that aren't the egress router.
+openclaw_nat_router: true
+private_subnet_cidr: "10.0.1.0/24"
+
 tailscale_enabled: true
 tailscale_serve_mode: "serve"
 tailscale_hostname: "openclaw"
