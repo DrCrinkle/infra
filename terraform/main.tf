@@ -26,33 +26,17 @@ module "networking" {
   vcn_cidr_blocks    = ["10.0.0.0/16"]
   public_subnet_cidr = "10.0.0.0/24"
 
-  # Attach NAT security list to public subnet to allow transit traffic from private subnet
-  public_subnet_additional_security_list_ids = [module.nat_instance.security_list_id]
+  # Private subnet egresses via OpenClaw now (see oci_core_route_table.private).
+  # Transit-traffic allow lives on OpenClaw's NSG, not the whole subnet, so no extra SL here.
+  public_subnet_additional_security_list_ids = []
 }
 
-# =============================================================================
-# NAT Instance (fck-nat style on free tier)
-# =============================================================================
-
-module "nat_instance" {
-  source = "./modules/nat-instance"
-
-  compartment_id           = var.compartment_id
-  availability_domain      = "mBSv:US-SANJOSE-1-AD-1"
-  subnet_id                = module.networking.public_subnet_id
-  vcn_id                   = module.networking.vcn_id
-  ssh_public_key           = var.ssh_public_key
-  private_subnet_cidr      = local.private_subnet_cidr
-  private_subnet_ipv6_cidr = cidrsubnet(module.networking.vcn_ipv6cidr_blocks[0], 8, 1)
-  image_id                 = var.nat_instance_image_id
-
-  # HA mode (optional) - uses both free tier x86 instances
-  # enable_ha      = true
-  # route_table_id = module.networking.private_route_table_id
-}
+# NAT instance decommissioned 2026-05-30: OpenClaw (public subnet, ~4 Gbps IGW egress)
+# now serves as the private subnet's NAT router via skip_source_dest_check + nftables
+# masquerade. The private subnet + route table + Bastion are retained for a future DB tier.
 
 # =============================================================================
-# Private Subnet (routes through NAT instance)
+# Private Subnet (IPv4 egress via OpenClaw-as-NAT; empty, reserved for future DB tier)
 # =============================================================================
 
 resource "oci_core_route_table" "private" {
@@ -60,30 +44,28 @@ resource "oci_core_route_table" "private" {
   vcn_id         = module.networking.vcn_id
   display_name   = "Private Route Table"
 
+  # IPv4 egress routes through OpenClaw (skip_source_dest_check + nftables masquerade),
+  # which replaced the dedicated NAT micro instance on 2026-05-30.
   route_rules {
     destination       = "0.0.0.0/0"
     destination_type  = "CIDR_BLOCK"
-    network_entity_id = module.nat_instance.private_ip_id
+    network_entity_id = data.oci_core_private_ips.openclaw.private_ips[0].id
   }
 
-  # OCI services (yum repos, Object Storage, etc.) bypass NAT via service gateway
+  # OCI services (yum repos, Object Storage, etc.) go direct via the service gateway
   route_rules {
     destination       = module.networking.all_services_cidr
     destination_type  = "SERVICE_CIDR_BLOCK"
     network_entity_id = module.networking.service_gateway_id
   }
 
-  # Native IPv6 egress via internet gateway (bypasses NAT)
+  # Native IPv6 egress straight to the internet gateway — no NAT needed for IPv6 (GUAs
+  # are globally routable). A future DB tier gets v6 internet without touching OpenClaw.
   route_rules {
     destination       = "::/0"
     destination_type  = "CIDR_BLOCK"
     network_entity_id = module.networking.internet_gateway_id
   }
-
-  # NOTE: NAT64 prefix (64:ff9b::/96) routing is configured at the OS level
-  # on private subnet instances, not in OCI route tables. OCI doesn't support
-  # IPv6 route rules targeting a VNIC private IP. Configure via:
-  #   ip -6 route add 64:ff9b::/96 via <NAT_INSTANCE_IPV6_ADDR>
 }
 
 resource "oci_core_security_list" "private" {
@@ -194,14 +176,44 @@ resource "oci_core_subnet" "private" {
 }
 
 # =============================================================================
-# NAT Cloud-init Wait
+# OpenClaw NSG - per-VNIC ingress control on the shared public subnet
 # =============================================================================
-# NAT instance cloud-init takes 30-60s to configure IP forwarding and iptables.
-# Without this wait, openclaw may boot before NAT is ready, breaking outbound.
+# OpenClaw moves onto the public subnet for direct IGW egress (no NAT bottleneck).
+# The subnet's default security list already blocks all internet ingress except
+# ICMP PMTUD (SSH is VCN-only). This NSG adds the one inbound rule Tailscale wants
+# for its fast DIRECT path; without it Tailscale still works but via DERP relay.
+resource "oci_core_network_security_group" "openclaw" {
+  compartment_id = var.compartment_id
+  vcn_id         = module.networking.vcn_id
+  display_name   = "OpenClaw NSG"
+}
 
-resource "time_sleep" "wait_for_nat_cloudinit" {
-  depends_on      = [module.nat_instance]
-  create_duration = "300s"
+# Tailscale WireGuard (UDP 41641). Open from anywhere is safe: only cryptographically
+# authenticated tailnet peers can do anything with it. This is the only inbound port.
+resource "oci_core_network_security_group_security_rule" "openclaw_tailscale" {
+  network_security_group_id = oci_core_network_security_group.openclaw.id
+  direction                 = "INGRESS"
+  protocol                  = "17" # UDP
+  source                    = "0.0.0.0/0"
+  source_type               = "CIDR_BLOCK"
+
+  udp_options {
+    destination_port_range {
+      min = 41641
+      max = 41641
+    }
+  }
+}
+
+# Transit traffic from the private subnet: OpenClaw is the NAT router for 10.0.1.0/24,
+# so it must accept forwarded traffic from there (replaces the old NAT instance's
+# security list). Source is VCN-internal only — the public internet cannot use this.
+resource "oci_core_network_security_group_security_rule" "openclaw_private_transit" {
+  network_security_group_id = oci_core_network_security_group.openclaw.id
+  direction                 = "INGRESS"
+  protocol                  = "all"
+  source                    = local.private_subnet_cidr
+  source_type               = "CIDR_BLOCK"
 }
 
 # =============================================================================
@@ -214,7 +226,10 @@ resource "oci_core_instance" "openclaw" {
   display_name        = "OpenClaw"
   shape               = "VM.Standard.A1.Flex"
 
-  depends_on = [time_sleep.wait_for_nat_cloudinit]
+  # Preserve boot volume on termination. The IGW migration changes subnet_id
+  # (ForceNew → recreate); without this, terminate would delete the boot volume
+  # and the recreate-from-OCID would fail with data loss. Commit BEFORE cutover.
+  preserve_boot_volume = true
 
   shape_config {
     ocpus         = 4
@@ -222,22 +237,33 @@ resource "oci_core_instance" "openclaw" {
   }
 
   source_details {
-    source_type = "image"
-    # AlmaLinux 10.0 aarch64 (2025.02.03) - us-sanjose-1
-    # Verify: oci compute image get --image-id <this-ocid> | jq '.data."display-name"'
-    source_id               = "ocid1.image.oc1..aaaaaaaauc7uim6b3utoeimtl3l7q27qbb4tmmh5f2rfblv6vowhxfjyiusa"
-    boot_volume_size_in_gbs = 50
+    source_type             = var.openclaw_boot_volume_id != null ? "bootVolume" : "image"
+    source_id               = var.openclaw_boot_volume_id != null ? var.openclaw_boot_volume_id : "ocid1.image.oc1..aaaaaaaauc7uim6b3utoeimtl3l7q27qbb4tmmh5f2rfblv6vowhxfjyiusa"
+    boot_volume_size_in_gbs = var.openclaw_boot_volume_id != null ? null : 50
   }
 
   create_vnic_details {
-    subnet_id        = oci_core_subnet.private.id
-    assign_public_ip = false
-    assign_ipv6ip    = true
+    subnet_id              = module.networking.public_subnet_id
+    assign_public_ip       = true # ephemeral; egress-only. Ingress sealed by subnet SL + NSG + firewalld.
+    assign_ipv6ip          = true # native dual-stack via IGW (replaces NAT64/DNS64/Jool)
+    nsg_ids                = [oci_core_network_security_group.openclaw.id]
+    skip_source_dest_check = true # act as NAT/router for the private subnet (replaces micro NAT instance)
   }
 
   metadata = {
     ssh_authorized_keys = var.ssh_public_key
   }
+}
+
+# OpenClaw's primary private IP OCID — used as the private subnet's NAT next-hop
+# (oci_core_route_table.private routes 0.0.0.0/0 here).
+data "oci_core_vnic_attachments" "openclaw" {
+  compartment_id = var.compartment_id
+  instance_id    = oci_core_instance.openclaw.id
+}
+
+data "oci_core_private_ips" "openclaw" {
+  vnic_id = data.oci_core_vnic_attachments.openclaw.vnic_attachments[0].vnic_id
 }
 
 # =============================================================================

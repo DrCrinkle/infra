@@ -54,15 +54,14 @@ infra/
 
 | Pattern | Why Forbidden |
 |---------|---------------|
-| Public IPs on compute | All access via Bastion or Tailscale |
+| Public IPs on compute *(see exception)* | Default: access via Bastion/Tailscale. **Exception (2026-05-30): OpenClaw runs in the public subnet with an ephemeral public IP for direct ~4 Gbps IGW egress. Ingress is still fully sealed (subnet SL allows no internet inbound; NSG allows only Tailscale UDP 41641; firewalld drop zone). The public IP is egress-only — Tailscale remains the sole way in.** Do not add public IPs to other instances. |
 | `0.0.0.0/0` ingress | Never except LB ports 80/443 |
 | Running as root | Use systemd user services |
-| Ignoring `time_sleep` | NAT needs 90s for cloud-init |
 | Same KMS key for state+app | Separate encryption domains |
 
 ## UNIQUE STYLES
 
-- **fck-nat pattern**: Custom NAT instance instead of managed NAT Gateway (free tier)
+- **OpenClaw-as-NAT (since 2026-05-30)**: The dedicated fck-nat micro instance was removed. OpenClaw (public subnet, A1.Flex) is the private subnet's NAT router via `skip_source_dest_check` + nftables masquerade (`ip saddr 10.0.1.0/24 … masquerade`) + `ip_forward`. Replaced the E2.1.Micro NAT, which capped egress at ~48 Mbps.
 - **Manual Terraform→Ansible handoff**: Update `inventory/hosts.yml` with IP after `terraform apply`
 - **AlmaLinux 10 + CentOS 9 repos**: Docker CE uses CentOS 9 repo for compatibility
 

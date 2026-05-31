@@ -3,41 +3,17 @@
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# NAT Instance
-# -----------------------------------------------------------------------------
-
-output "nat_instance_public_ip" {
-  description = "Public IP of NAT instance (use as jump host)"
-  value       = module.nat_instance.public_ip
-}
-
-output "nat_instance_private_ip" {
-  description = "Private IP of NAT instance"
-  value       = module.nat_instance.private_ip
-}
-
-output "nat_instance_ocid" {
-  description = "OCID of NAT instance (for Bastion sessions and VNIC verification)"
-  value       = module.nat_instance.instance_id
-}
-
-output "nat_instance_ipv6_address" {
-  description = "IPv6 address of NAT instance (NAT64 gateway)"
-  value       = module.nat_instance.ipv6_address
-}
-
-output "nat_instance_security_list_id" {
-  description = "OCID of NAT instance security list"
-  value       = module.nat_instance.security_list_id
-}
-
-# -----------------------------------------------------------------------------
-# OpenClaw Instance
+# OpenClaw Instance (public subnet; direct IGW egress + NAT router for private subnet)
 # -----------------------------------------------------------------------------
 
 output "openclaw_private_ip" {
-  description = "Private IP of openclaw instance"
+  description = "Private IP of openclaw instance (also the private subnet's NAT next-hop)"
   value       = oci_core_instance.openclaw.private_ip
+}
+
+output "openclaw_public_ip" {
+  description = "Ephemeral public IP (egress only; inbound is sealed — access via Tailscale/Bastion)"
+  value       = oci_core_instance.openclaw.public_ip
 }
 
 output "openclaw_ocid" {
@@ -55,12 +31,12 @@ output "vcn_id" {
 }
 
 output "public_subnet_id" {
-  description = "OCID of the public subnet (NAT instance)"
+  description = "OCID of the public subnet (OpenClaw)"
   value       = module.networking.public_subnet_id
 }
 
 output "private_subnet_id" {
-  description = "OCID of the private subnet (openclaw)"
+  description = "OCID of the private subnet (reserved for future DB tier; egresses via OpenClaw)"
   value       = oci_core_subnet.private.id
 }
 
@@ -79,10 +55,9 @@ output "bastion_ocid" {
 }
 
 # -----------------------------------------------------------------------------
-# SSH Commands (for convenience)
+# Access
 # -----------------------------------------------------------------------------
-
-output "ssh_via_nat_jump" {
-  description = "SSH command to reach openclaw via NAT jump host"
-  value       = "ssh -J opc@${module.nat_instance.public_ip} opc@${oci_core_instance.openclaw.private_ip}"
-}
+# OpenClaw has no public ingress. Reach it via Tailscale (primary) or Bastion (break-glass):
+#   tailscale:  ssh opc@openclaw          (or opc@100.104.160.85)
+#   bastion:    oci bastion session create-port-forwarding --target-private-ip <openclaw_private_ip>
+# Outputs intentionally omit a direct-SSH string since no internet-facing SSH exists.

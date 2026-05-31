@@ -25,7 +25,8 @@ variable "ssh_public_key" {
   type        = string
 }
 
-variable "nat_instance_image_id" {
-  description = "x86 image OCID for NAT instance. Must support dnf, firewalld, iptables. Verify: oci compute image get --image-id <ocid>"
+variable "openclaw_boot_volume_id" {
+  description = "Boot volume OCID to restore OpenClaw from. If set, instance boots from this volume instead of the base image."
   type        = string
+  default     = null
 }
