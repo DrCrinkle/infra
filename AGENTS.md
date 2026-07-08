@@ -62,6 +62,7 @@ infra/
 ## UNIQUE STYLES
 
 - **OpenClaw-as-NAT (since 2026-05-30)**: The dedicated fck-nat micro instance was removed. OpenClaw (public subnet, A1.Flex) is the private subnet's NAT router via `skip_source_dest_check` + nftables masquerade (`ip saddr 10.0.1.0/24 … masquerade`) + `ip_forward`. Replaced the E2.1.Micro NAT, which capped egress at ~48 Mbps.
+- **Hermes co-located on OpenClaw (since ~2026-07-07)**: The Hermes messaging-gateway agent runs alongside OpenClaw on the same A1 instance as a `systemctl --user` service (user `opc`, enabled + `Linger=yes`, survives reboot). Check it with `systemctl --user is-active hermes-gateway.service` — **system-scope `systemctl is-active` reports "inactive"/not-found because it's a user unit.** Kept co-located deliberately (box idles at ~1.5 GiB of 24; a dedicated instance would split the 4/24 A1 free pool). Split only when the private-subnet DB tier goes live or Hermes handles untrusted inbound — then move Hermes to a free E2.1.Micro.
 - **Manual Terraform→Ansible handoff**: Update `inventory/hosts.yml` with IP after `terraform apply`
 - **AlmaLinux 10 + CentOS 9 repos**: Docker CE uses CentOS 9 repo for compatibility
 
@@ -89,13 +90,13 @@ ansible-vault edit group_vars/all/vault.yml
 
 | Resource | Limit |
 |----------|-------|
-| ARM A1.Flex *(see note)* | Metered: 1,500 OCPU-hrs + 9,000 GB-hrs/month (= 2 OCPU + 12GB run 24/7) |
+| ARM A1.Flex *(see note)* | Flat 4 OCPU + 24GB always-on (PAYG not charged over the metered cap — see note) |
 | x86 E2.1.Micro | 2 instances |
 | Block Storage | 200GB total |
 | Object Storage | 20GB |
 | Outbound Data Transfer | 10TB/month |
 
-> **A1.Flex note (changed ~2026-06, silently):** Oracle moved A1 Always Free from a flat **4 OCPU / 24GB always-on** to a metered **1,500 OCPU-hrs + 9,000 GB-hrs/month** model — effectively **2 OCPU + 12GB** if run continuously. Oracle published **no announcement** and made **no official statement about grandfathering** existing instances — the only official artifact is the docs page listing the new numbers. This account showed **$0 on 1,776 OCPU-hrs as of 2026-06-19** (an *observation*, not a documented guarantee — possibly billing lag, not policy). Because there is no documented protection, OpenClaw was **downgraded to 2 OCPU / 12GB on 2026-06-19** so it sits inside the new caps under both the old and new models. Note: consequences of exceeding the cap differ by account type — PAYG may be *charged*, free-only may have resources *reclaimed/disabled* (both per secondhand Oracle Support reports, not official). Idle reclamation: instance reclaimed if 95th-pct CPU/network/memory all <20% over any 7-day window.
+> **A1.Flex note (updated 2026-07-07):** Oracle's docs list a metered A1 Always Free model (**1,500 OCPU-hrs + 9,000 GB-hrs/month** = 2 OCPU + 12GB continuous), changed silently ~2026-06 from the old flat **4 OCPU / 24GB always-on**. **This account is a PAYG account and is NOT charged for A1 over that cap** — two consecutive months observed at **$0** despite running ~75% over cap (June 1–July 7 2026: ~2,630 OCPU-hrs + ~15,782 GB-hrs, all $0.00 via `oci usage-api`). The 2026-06-19 downgrade to 2/12 was an unnecessary precaution; **OpenClaw was restored to 4 OCPU / 24GB on 2026-07-07** (in-place `shape_config` resize — `update in-place, 0 to destroy`, ~2m11s reboot, same OCID/IPs). OpenClaw now consumes the full tenancy A1 free pool. Caveat: metered enforcement differs by account type — free-only accounts may have resources *reclaimed/disabled*; PAYG (this account) is simply not billed for the Always Free A1 allotment. Verify the bill after adding any new A1 instance. Idle reclamation: instance reclaimed if 95th-pct CPU/network/memory all <20% over any 7-day window.
 
 ## NOTES
 

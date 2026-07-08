@@ -232,8 +232,8 @@ resource "oci_core_instance" "openclaw" {
   preserve_boot_volume = true
 
   shape_config {
-    ocpus         = 2
-    memory_in_gbs = 12
+    ocpus         = 4
+    memory_in_gbs = 24
   }
 
   source_details {
