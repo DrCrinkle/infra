@@ -54,7 +54,7 @@ infra/
 
 | Pattern | Why Forbidden |
 |---------|---------------|
-| Public IPs on compute *(see exception)* | Default: access via Bastion/Tailscale. **Exception (2026-05-30): OpenClaw runs in the public subnet with an ephemeral public IP for direct ~4 Gbps IGW egress. Ingress is still fully sealed (subnet SL allows no internet inbound; NSG allows only Tailscale UDP 41641; firewalld drop zone). The public IP is egress-only — Tailscale remains the sole way in.** Do not add public IPs to other instances. |
+| Public IPs on compute *(see exception)* | Default: access via Bastion/Tailscale. **Exception — the "sealed egress-only public IP" pattern:** an instance may take an ephemeral public IP *only if* ingress stays fully sealed (subnet SL allows no internet inbound; per-VNIC NSG allows only Tailscale UDP 41641; firewalld drop zone) so the public IP is egress-only and Tailscale remains the sole way in. Instances using it: **OpenClaw** (2026-05-30, ~4 Gbps IGW egress + NAT router), **sentinel** and **edge-lab** (2026-07-10, the two free E2.1.Micro boxes — see `free-micros.tf`). Do not add a public IP to any instance without this exact seal. |
 | `0.0.0.0/0` ingress | Never except LB ports 80/443 |
 | Running as root | Use systemd user services |
 | Same KMS key for state+app | Separate encryption domains |

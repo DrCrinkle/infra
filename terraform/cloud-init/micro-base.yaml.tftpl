@@ -1,0 +1,30 @@
+#cloud-config
+# Base bootstrap for the free E2.1.Micro boxes (sentinel, edge-lab).
+# Keep this MINIMAL: Tailscale enrollment + firewalld only. All service
+# config (Gatus / Caddy / Bun) happens post-boot over Tailscale, matching
+# the repo's "manual Terraform -> config handoff" convention and keeping
+# cloud-init debuggable. cloud-config YAML avoids the bash-heredoc tab
+# pitfall documented in the project memory.
+
+package_update: true
+packages:
+  - firewalld
+  - curl
+
+runcmd:
+  # --- firewalld: drop-zone default (public NIC gets nothing); SSH kept for
+  #     VCN-internal / jump-host access. Public internet SSH is already blocked
+  #     by the subnet security list, so this is defense-in-depth.
+  - systemctl enable --now firewalld
+  - firewall-cmd --set-default-zone=drop
+  - firewall-cmd --permanent --zone=drop --add-service=ssh
+  # --- Tailscale (official installer auto-detects AlmaLinux 10 / x86_64) ---
+  - curl -fsSL https://tailscale.com/install.sh | sh
+  - systemctl enable --now tailscaled
+  # Enroll with the single-use ephemeral key. --ssh enables Tailscale SSH so
+  # post-boot config needs no separate key management. Key is consumed here.
+  - tailscale up --authkey='${tailscale_authkey}' --hostname='${hostname}' --ssh
+  # tailscale0 now exists -> put it in the trusted zone (all tailnet traffic ok)
+  - firewall-cmd --permanent --zone=trusted --add-interface=tailscale0
+  - firewall-cmd --reload
+  - 'echo "cloud-init base bootstrap complete: ${hostname}" > /var/log/micro-bootstrap.done'
