@@ -13,7 +13,7 @@ terraform.rc
 
 # Ansible
 *.retry
-ansible/group_vars/vault.yml
+ansible/group_vars/all/vault.yml
 ansible/inventory/hosts.local.yml
 
 # Secrets
@@ -25,6 +25,7 @@ ansible/inventory/hosts.local.yml
 # Claude
 .claude/
 .serena/
+logs/
 
 # OS
 .DS_Store

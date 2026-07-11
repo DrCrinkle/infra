@@ -15,8 +15,19 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-OPENCLAW_IP="${OPENCLAW_IP:-163.192.34.111}"
 OPENCLAW_USER="${OPENCLAW_USER:-opc}"
+OPENCLAW_IP="${OPENCLAW_IP:-}"
+
+if [ -z "$OPENCLAW_IP" ]; then
+    if [ -d "${INFRA_DIR}/terraform" ]; then
+        OPENCLAW_IP=$(cd "${INFRA_DIR}/terraform" && terraform output -raw openclaw_private_ip 2>/dev/null || true)
+    fi
+fi
+
+if [ -z "$OPENCLAW_IP" ]; then
+    log_error "Could not resolve OpenClaw IP. Set OPENCLAW_IP or run after terraform outputs are available."
+    exit 1
+fi
 
 mkdir -p "$BACKUP_DIR"
 
@@ -56,6 +67,7 @@ ssh "${OPENCLAW_USER}@${OPENCLAW_IP}" 'sudo tar -czvf /tmp/openclaw-backup.tar.g
     /home/opc/workspace \
     /home/opc/workspaces \
     /home/opc/openclaw \
+    /home/opc/.config/systemd/user/openclaw* \
     /etc/systemd/system/openclaw* \
     2>/dev/null || true'
 
