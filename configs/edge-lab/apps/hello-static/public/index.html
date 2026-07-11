@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>edge-lab</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font: 16px/1.6 system-ui, sans-serif; max-width: 42rem; margin: 4rem auto; padding: 0 1.2rem; }
+    code { background: color-mix(in srgb, currentColor 12%, transparent); padding: .15em .4em; border-radius: 4px; }
+    .ok { color: #16a34a; font-weight: 600; }
+    footer { margin-top: 2.5rem; opacity: .65; font-size: .85rem; }
+  </style>
+</head>
+<body>
+  <h1>edge-lab <span class="ok">✓ live</span></h1>
+  <p>This is the static landing page served by <strong>Caddy</strong> on the
+     <code>edge-lab</code> OCI free-tier micro. It confirms the box is provisioned
+     and serving.</p>
+  <p>The tiny Bun API is reverse-proxied under <code>/api/</code>:
+     try <a href="/api/hello">/api/hello</a>.</p>
+  <footer>AlmaLinux 10 · x86_64 · Caddy + Bun · reachable over Tailscale.</footer>
+</body>
+</html>

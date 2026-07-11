@@ -1,0 +1,69 @@
+# Gatus config for sentinel — external watchdog for Taylor's infra.
+# Web UI binds 0.0.0.0:8080 but is reachable ONLY over Tailscale: the firewalld
+# drop zone + OCI subnet security list + NSG block 8080 from the internet, while
+# tailscale0 is in the trusted zone. View at http://sentinel:8080 on the tailnet.
+web:
+  address: "0.0.0.0"
+  port: 8080
+
+storage:
+  type: sqlite
+  path: /var/lib/gatus/data.db
+
+# NOTE: alerting is intentionally NOT configured yet — no ntfy/Telegram creds.
+# To add later: define an `alerting:` block + per-endpoint `alerts:` entries.
+
+endpoints:
+  # --- Main VPS (OpenClaw, tailnet 100.104.160.85) ---
+  - name: openclaw-reachable
+    group: main-vps
+    url: "icmp://100.104.160.85"
+    interval: 60s
+    conditions:
+      - "[CONNECTED] == true"
+
+  - name: openclaw-ssh
+    group: main-vps
+    url: "tcp://100.104.160.85:22"
+    interval: 60s
+    conditions:
+      - "[CONNECTED] == true"
+
+  # OpenClaw gateway — monitored via its Tailscale Serve endpoint, the intended
+  # tailnet door. The raw WS port (18789) stays loopback-bound on OpenClaw BY
+  # DESIGN (it has active local clients; rebinding to tailnet-only would break
+  # them). Tailscale Serve proxies https://openclaw.tail7c48ec.ts.net -> the
+  # loopback gateway. Verified 200 from sentinel 2026-07-10. This check therefore
+  # covers the full client path: OpenClaw up + tailscaled + serve + gateway.
+  - name: openclaw-gateway
+    group: main-vps
+    url: "https://openclaw.tail7c48ec.ts.net/healthz"
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+
+  # --- Public endpoints ---
+  # Working placeholder proving outbound HTTPS checks function. Replace / add your
+  # real public demo domains below.
+  - name: public-https-placeholder
+    group: public
+    url: "https://1.1.1.1"
+    interval: 120s
+    conditions:
+      - "[STATUS] == 200"
+
+  # TEMPLATE — copy per real demo domain once edge-lab demos go live:
+  # - name: my-demo
+  #   group: public
+  #   url: "https://demo.example.com"
+  #   interval: 120s
+  #   conditions:
+  #     - "[STATUS] == 200"
+  #     - "[CERTIFICATE_EXPIRATION] > 168h"
+
+# TODO (need SSH-based external collectors, not plain Gatus probes):
+#   - main VPS disk usage below threshold
+#   - gbrain indexing freshness
+#   - backup freshness marker
+# Implement as a tiny script on sentinel that SSHes to OpenClaw, writes a metric
+# file, and exposes it over HTTP for Gatus to scrape — deferred.

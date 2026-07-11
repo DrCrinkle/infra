@@ -1,0 +1,27 @@
+[Unit]
+Description=Gatus health dashboard / external watchdog
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=gatus
+Environment=GATUS_CONFIG_PATH=/etc/gatus/config.yaml
+ExecStart=/usr/local/bin/gatus
+# ICMP checks need raw sockets; grant just that capability to an otherwise
+# unprivileged dynamic user.
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

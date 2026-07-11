@@ -1,0 +1,25 @@
+# edge-lab Caddy config.
+#
+# For now edge-lab is TAILSCALE-ONLY: this listens on :80, reachable over the
+# tailnet (http://edge-lab/). The firewalld drop zone + OCI security list + NSG
+# block port 80 from the internet, so nothing is publicly exposed yet.
+#
+# TO GO PUBLIC later: (1) add INGRESS TCP 80/443 to the edge-lab NSG in
+# terraform/free-micros.tf, (2) point a domain's DNS at edge-lab's public IP,
+# (3) replace ":80" below with "your-domain.com" — Caddy will auto-provision a
+# Let's Encrypt certificate and serve HTTPS automatically.
+
+:80 {
+	encode gzip
+
+	# Tiny Bun API under /api/*
+	handle /api/* {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	# Everything else: the static landing site
+	handle {
+		root * /opt/edge-lab/apps/hello-static/public
+		file_server
+	}
+}
