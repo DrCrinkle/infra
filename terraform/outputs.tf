@@ -61,3 +61,24 @@ output "bastion_ocid" {
 #   tailscale:  ssh opc@openclaw          (or opc@100.104.160.85)
 #   bastion:    oci bastion session create-port-forwarding --target-private-ip <openclaw_private_ip>
 # Outputs intentionally omit a direct-SSH string since no internet-facing SSH exists.
+
+# -----------------------------------------------------------------------------
+# Vault (OpenClaw secrets)
+# -----------------------------------------------------------------------------
+# The exec resolver on the box reads secret bundles by name against this vault
+# OCID using instance-principal auth.
+
+output "openclaw_vault_ocid" {
+  description = "OCID of the openclaw-secrets KMS vault (used by the on-box exec resolver)"
+  value       = oci_kms_vault.openclaw_secrets.id
+}
+
+output "openclaw_vault_key_ocid" {
+  description = "OCID of the AES master key encrypting OpenClaw secrets"
+  value       = oci_kms_key.openclaw_secrets.id
+}
+
+output "openclaw_vault_management_endpoint" {
+  description = "KMS management endpoint for the openclaw-secrets vault"
+  value       = oci_kms_vault.openclaw_secrets.management_endpoint
+}
