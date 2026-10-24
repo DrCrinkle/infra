@@ -52,6 +52,8 @@ resource "oci_identity_policy" "openclaw_secrets" {
   name           = "openclaw-secrets-policy"
   description    = "Allow OpenClaw instance principal to read its Vault secret bundles (runtime resolver)."
   statements = [
-    "Allow dynamic-group ${oci_identity_dynamic_group.openclaw_secrets.name} to read secret-bundles in compartment id ${var.compartment_id}",
+    # Scoped to this vault only: OpenClaw runs AI agents, so a hijacked agent
+    # must not be able to read secrets from any other vault in the tenancy.
+    "Allow dynamic-group ${oci_identity_dynamic_group.openclaw_secrets.name} to read secret-bundles in compartment id ${var.compartment_id} where target.vault.id = '${oci_kms_vault.openclaw_secrets.id}'",
   ]
 }
