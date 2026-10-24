@@ -220,6 +220,24 @@ resource "oci_core_network_security_group_security_rule" "openclaw_private_trans
 # Compute Instance
 # =============================================================================
 
+# Oracle Cloud Agent plugin set (agent installed by hand from Oracle's OL10
+# "OCI Included" repo; AlmaLinux images don't ship it). Only scanning and
+# metrics run. Run Command is off on purpose: it would let anyone holding an
+# OCI admin key execute commands as root through the API, a new way in that
+# bypasses the Tailscale-only ingress model. The rest are default-on extras.
+locals {
+  oca_plugins = {
+    "Vulnerability Scanning"          = "ENABLED"
+    "Compute Instance Monitoring"     = "ENABLED"
+    "Compute Instance Run Command"    = "DISABLED"
+    "Custom Logs Monitoring"          = "DISABLED"
+    "Cloud Guard Workload Protection" = "DISABLED"
+    "Bastion"                         = "DISABLED"
+    "OS Management Hub Agent"         = "DISABLED"
+    "Management Agent"                = "DISABLED"
+  }
+}
+
 resource "oci_core_instance" "openclaw" {
   compartment_id      = var.compartment_id
   availability_domain = "mBSv:US-SANJOSE-1-AD-1"
@@ -252,6 +270,20 @@ resource "oci_core_instance" "openclaw" {
 
   metadata = {
     ssh_authorized_keys = var.ssh_public_key
+  }
+
+  agent_config {
+    are_all_plugins_disabled = false
+    is_management_disabled   = false
+    is_monitoring_disabled   = false
+
+    dynamic "plugins_config" {
+      for_each = local.oca_plugins
+      content {
+        name          = plugins_config.key
+        desired_state = plugins_config.value
+      }
+    }
   }
 }
 

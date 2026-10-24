@@ -177,6 +177,22 @@ resource "oci_core_instance" "edge_lab" {
     }))
   }
 
+  # Oracle Cloud Agent trial box (plugin set in main.tf). sentinel stays
+  # agent-free until edge-lab shows the agent fits in 1 GB of RAM.
+  agent_config {
+    are_all_plugins_disabled = false
+    is_management_disabled   = false
+    is_monitoring_disabled   = false
+
+    dynamic "plugins_config" {
+      for_each = local.oca_plugins
+      content {
+        name          = plugins_config.key
+        desired_state = plugins_config.value
+      }
+    }
+  }
+
   lifecycle {
     ignore_changes = [metadata, source_details]
   }
