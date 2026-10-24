@@ -27,6 +27,17 @@
     zone: drop
   become: true
 
+# DHCPv6 replies arrive over plain UDP (unlike DHCPv4's packet sockets), so the
+# drop zone discards them and the OCI-assigned IPv6 lease expires ~25h after boot.
+- name: Allow DHCPv6 client (link-local replies only)
+  ansible.posix.firewalld:
+    service: dhcpv6-client
+    permanent: yes
+    immediate: yes
+    state: enabled
+    zone: drop
+  become: true
+
 - name: Allow Tailscale UDP port
   ansible.posix.firewalld:
     port: 41641/udp
