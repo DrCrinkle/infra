@@ -18,12 +18,23 @@
   become: true
   changed_when: false
 
-- name: Allow SSH
+# SSH on eth0 is VCN-only (bastion sessions arrive from 10.0.0.0/16); the
+# tailnet path goes through the trusted zone and is unaffected.
+- name: Allow SSH from the VCN only
+  ansible.posix.firewalld:
+    rich_rule: rule family="ipv4" source address="10.0.0.0/16" service name="ssh" accept
+    permanent: yes
+    immediate: yes
+    state: enabled
+    zone: drop
+  become: true
+
+- name: Drop the open SSH service from the drop zone
   ansible.posix.firewalld:
     service: ssh
     permanent: yes
     immediate: yes
-    state: enabled
+    state: disabled
     zone: drop
   become: true
 
