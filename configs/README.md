@@ -25,7 +25,9 @@ Static binary built from source (`github.com/TwiN/gatus`, no prebuilt releases) 
 Checks OpenClaw over the tailnet; the `openclaw-gateway` check uses the Tailscale
 Serve endpoint (`https://openclaw.tail7c48ec.ts.net/healthz`) because the gateway
 is loopback-bound on OpenClaw and exposed to the tailnet only via Serve.
-Alerting is a TODO (no ntfy/Telegram creds yet).
+Alerts go to ntfy; the topic comes from `/etc/gatus/gatus.env` (`NTFY_TOPIC=...`,
+never committed). Deploy order, restore-route and rollback:
+`docs/phase0-access-and-alerting.md`.
 
 ## edge-lab — Caddy + Bun sandbox
 Caddy (official static binary) serves the static site and reverse-proxies `/api/*`

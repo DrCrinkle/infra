@@ -8,6 +8,10 @@ Type=simple
 DynamicUser=yes
 StateDirectory=gatus
 Environment=GATUS_CONFIG_PATH=/etc/gatus/config.yaml
+# Holds NTFY_TOPIC (root:root 0600, not in Git). No "-" prefix on purpose: a
+# missing file must stop the unit rather than alert a literal "${NTFY_TOPIC}" topic.
+# systemd reads it as root, so DynamicUser=yes still works.
+EnvironmentFile=/etc/gatus/gatus.env
 ExecStart=/usr/local/bin/gatus
 # ICMP checks need raw sockets; grant just that capability to an otherwise
 # unprivileged dynamic user.
