@@ -1,0 +1,12 @@
+# ~/.config/systemd/user/lgtm-restic-check.service
+[Unit]
+Description=LGTM restic repository integrity check (5% read)
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/lgtm/backup.env
+Environment=RESTIC_PASSWORD_FILE=%h/.config/lgtm/restic.pass
+ExecStart=%h/deploy/infra/configs/lgtm/backup/lgtm-restic-check.sh
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=3h
