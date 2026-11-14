@@ -1,0 +1,22 @@
+# Prometheus: receives remote-write and OTLP from Alloy and scrapes the stack itself.
+# Retention lives here: Prometheus 3.16 deprecates the --storage.tsdb.retention.*
+# flags in favour of this block.
+global:
+  scrape_interval: 30s
+
+storage:
+  tsdb:
+    retention:
+      time: 30d
+      size: 50GB # guard rail; the expected 30-day footprint is single-digit GB
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs: [{ targets: ["localhost:9090"] }]
+  - job_name: loki
+    static_configs: [{ targets: ["loki:3100"] }]
+  - job_name: tempo
+    static_configs: [{ targets: ["tempo:3200"] }]
+  # Grafana listens on host loopback only, which a bridged container cannot
+  # reach; taylor-pc's host Alloy scrapes 127.0.0.1:3300 instead
+  # (configs/alloy/taylor-pc.alloy).

@@ -1,0 +1,19 @@
+# Drill Grafana: datasources point at the drill backends (compose.drill.yaml
+# remaps them), never at the live stack.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    url: http://127.0.0.1:19090
+    isDefault: true
+  - name: Loki
+    uid: loki
+    type: loki
+    url: http://127.0.0.1:13100
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    url: http://127.0.0.1:13200
+    jsonData:
+      tracesToLogsV2: { datasourceUid: loki }
