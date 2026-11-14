@@ -1,0 +1,37 @@
+# Loki: single binary, filesystem store, 30-day retention.
+# Base: grafana/docker-otel-lgtm v0.41.0 docker/loki-config.yaml. Retention keys:
+# Loki v3.7.10 docs/operations/storage/retention.md.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: "2026-11-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h # retention requires a 24h index period
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+limits_config:
+  retention_period: 720h # 30 days
