@@ -1,0 +1,12 @@
+# ~/.config/systemd/user/lgtm-backup.timer
+[Unit]
+Description=Nightly LGTM stack backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=10m
+# Catch up after a night with the machine off.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
