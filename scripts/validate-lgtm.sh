@@ -35,6 +35,7 @@ check() {
 have() { command -v "$1" >/dev/null 2>&1; }
 
 check "contract test" bun scripts/test-lgtm-contract.ts
+check "sentinel contract test" bun scripts/test-lgtm-sentinel-contract.ts
 check "backup behavior test (stubbed tools)" bun scripts/test-lgtm-backup.ts
 
 if have shellcheck; then
