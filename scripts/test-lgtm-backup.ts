@@ -21,6 +21,7 @@ function run(script: string, failAt: string | null, extraEnv: Record<string, str
   mkdirSync(bin);
   mkdirSync(join(dir, "data"));
   writeFileSync(log, "");
+  // (extraEnv can select the OpenObserve stack with LGTM_STACK.)
   // One generic stub: logs "<name> <args>" and fails when FAIL_AT matches "<name>" or "<name> <first arg>".
   const stub = `#!/usr/bin/env bash
 echo "$(basename "$0") $*" >> "$STUB_LOG"
@@ -138,6 +139,21 @@ const pushBad = /^curl .*success=false/;
 {
   const r = run("lgtm-backup.sh", null, { LGTM_MAX_DOWN_SECONDS: "-1" });
   expect("over-target pause is warned about", /exceeds the -1s target/.test(r.stderr), r.stderr);
+}
+
+// 10. the OpenObserve option stops and restarts only its own container, same guarantees.
+{
+  const oo = { LGTM_STACK: "openobserve" };
+  const stopOo = /^docker compose --project-directory \S*\/configs\/openobserve stop openobserve$/;
+  const startOo = /^docker compose --project-directory \S*\/configs\/openobserve start openobserve$/;
+  const r = run("lgtm-backup.sh", null, oo);
+  const order = [/^restic cat config$/, stopOo, /^rsync -a --delete/, startOo, /^restic backup/, /^restic forget/, pushOk].map((re) => idx(r, re));
+  expect("openobserve happy path exits 0 in order", r.rc === 0 && order.every((v, i) => v >= 0 && (i === 0 || v > order[i - 1])), `${order.join(",")}\n${dump(r)}`);
+  expect("openobserve never touches the LGTM containers", !has(r, /grafana|loki|tempo|prometheus/), dump(r));
+  const f = run("lgtm-backup.sh", "rsync", oo);
+  expect("openobserve copy failure restarts its container and pushes red", f.rc !== 0 && has(f, startOo) && has(f, pushBad) && !has(f, pushOk), dump(f));
+  const bad = run("lgtm-backup.sh", null, { LGTM_STACK: "nonsense" });
+  expect("an unknown stack is refused before any docker call", bad.rc === 2 && !has(bad, /^docker/), dump(bad));
 }
 
 // 9. restic-check: silent on success, red on failure, never green.

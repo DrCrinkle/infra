@@ -39,12 +39,13 @@ check "backup behavior test (stubbed tools)" bun scripts/test-lgtm-backup.ts
 
 if have shellcheck; then
   check "shellcheck (style)" shellcheck -x -P SCRIPTDIR -S style \
-    configs/lgtm/serve.sh configs/lgtm/backup/*.sh scripts/validate-lgtm.sh
+    configs/lgtm/serve.sh configs/openobserve/serve.sh configs/lgtm/backup/*.sh scripts/validate-lgtm.sh
 else skipped "shellcheck" shellcheck; fi
 
 # docker compose config resolves interpolation and env_file; give it a throwaway HOME.
 mkdir -p "$tmp/home/.config/lgtm"
 printf 'GF_SECURITY_ADMIN_PASSWORD=%s\nGF_SERVER_ROOT_URL=%s\n' placeholder https://example.invalid:8443/ >"$tmp/home/.config/lgtm/lgtm.env"
+printf 'ZO_ROOT_USER_EMAIL=%s@%s\nZO_ROOT_USER_PASSWORD=%s\nZO_WEB_URL=%s\n' someone example.invalid placeholder https://example.invalid:8443 >"$tmp/home/.config/lgtm/openobserve.env"
 read -r -a compose <<<"${DOCKER_COMPOSE:-docker compose}"
 if "${compose[@]}" version >/dev/null 2>&1; then
   check "docker compose config" env HOME="$tmp/home" "${compose[@]}" -f configs/lgtm/compose.yaml config --quiet
@@ -59,7 +60,16 @@ drill_config() {
   if grep -E 'published: "?(3100|3200|3300|4317|4318|9090)"?$' <<<"$out"; then echo "merged drill config collides with a live port"; return 1; fi
   if grep -E 'host_ip:' <<<"$out" | grep -v -q '127.0.0.1'; then echo "merged drill config leaves loopback"; return 1; fi
 }
+oo_drill_config() {
+  local out
+  out="$(env HOME="$tmp/home" "${compose[@]}" -p openobserve-drill -f configs/openobserve/compose.yaml -f configs/openobserve/drill/compose.drill.yaml config)" || return 1
+  if grep -q '/srv/lgtm/data' <<<"$out"; then echo "merged openobserve drill config still mounts live data"; return 1; fi
+  if grep -E 'published: "?(5080|5081)"?$' <<<"$out"; then echo "merged openobserve drill config collides with a live port"; return 1; fi
+  if grep -E 'host_ip:' <<<"$out" | grep -v -q '127.0.0.1'; then echo "merged openobserve drill config leaves loopback"; return 1; fi
+}
 if "${compose[@]}" version >/dev/null 2>&1; then
+  check "docker compose config (openobserve)" env HOME="$tmp/home" "${compose[@]}" -f configs/openobserve/compose.yaml config --quiet
+  check "docker compose config (openobserve drill merged)" oo_drill_config
   check "docker compose config (drill override merged)" drill_config
 else skipped "docker compose config (drill override merged)" "docker compose"; fi
 
@@ -78,9 +88,12 @@ else skipped "tempo -config.verify" tempo; fi
 alloy="${ALLOY:-alloy}"
 if have "$alloy"; then
   printf 'host.invalid\n' >"$tmp/lgtm-host"
-  for f in configs/alloy/*.alloy; do
-    check "alloy fmt --test $(basename "$f")" "$alloy" fmt --test "$f"
-    check "alloy validate $(basename "$f")" env LGTM_HOST_FILE="$tmp/lgtm-host" "$alloy" validate "$f"
+  printf '%s@%s\n' someone example.invalid >"$tmp/oo-user"
+  printf 'placeholder\n' >"$tmp/oo-passcode"
+  for f in configs/alloy/*.alloy configs/alloy/openobserve/*.alloy; do
+    n="$(basename "$(dirname "$f")")/$(basename "$f")"
+    check "alloy fmt --test $n" "$alloy" fmt --test "$f"
+    check "alloy validate $n" env LGTM_HOST_FILE="$tmp/lgtm-host" OO_USER_FILE="$tmp/oo-user" OO_PASSCODE_FILE="$tmp/oo-passcode" "$alloy" validate "$f"
   done
 else skipped "alloy fmt/validate" alloy; fi
 

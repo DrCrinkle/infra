@@ -102,6 +102,70 @@ if (drill.services?.grafana?.environment?.GF_SERVER_HTTP_PORT === grafana.enviro
   fail("drill grafana must listen on a different port than the live one");
 }
 
+// ------------------------------------------- the OpenObserve option (alternative)
+// Same rules as the LGTM stack: pinned image, loopback only, 30 days, no secret in the
+// compose file, Serve the only door, and a drill that cannot touch the live data.
+const ooCompose = Bun.YAML.parse(read("configs/openobserve/compose.yaml")) as { services: Record<string, Service> };
+if (JSON.stringify(Object.keys(ooCompose.services ?? {})) !== JSON.stringify(["openobserve"])) fail("openobserve compose must have exactly one service, openobserve");
+const oo = ooCompose.services?.openobserve ?? {};
+if (!/^openobserve\/openobserve:v\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$/.test(String(oo.image ?? ""))) fail(`openobserve: image must be a stable vX.Y.Z tag @sha256:<64 hex>, got ${oo.image}`);
+if (!oo.stop_grace_period) fail("openobserve: missing stop_grace_period");
+if (!oo.mem_limit) fail("openobserve: missing mem_limit");
+if (oo.user !== "1000:1000") fail("openobserve: user must be 1000:1000 (backup runs unprivileged)");
+if (oo.logging?.options?.["max-size"] !== "10m" || oo.logging?.options?.["max-file"] !== "3") fail("openobserve: json-file rotation must be max-size 10m, max-file 3");
+if (oo.labels && JSON.stringify(oo.labels).includes("watchtower")) fail("openobserve: a watchtower label would auto-update a pinned image");
+if (String(oo.environment?.ZO_COMPACT_DATA_RETENTION_DAYS) !== "30") fail("openobserve: ZO_COMPACT_DATA_RETENTION_DAYS must be 30");
+if (String(oo.environment?.ZO_TELEMETRY) !== "false") fail("openobserve: ZO_TELEMETRY must be false");
+for (const k of Object.keys(oo.environment ?? {})) if (/^ZO_ROOT_USER/.test(k)) fail(`openobserve: ${k} must come from the env_file, not the compose file`);
+for (const f of oo.env_file ?? []) if (!String(f).startsWith("${HOME}/")) fail("openobserve: env_file must live under ${HOME}, outside the repo");
+const ooPorts = new Set<number>();
+for (const port of oo.ports ?? []) {
+  const m = /^127\.0\.0\.1:(\d+):\d+$/.exec(String(port));
+  if (!m) fail(`openobserve: port ${port} must start with 127.0.0.1:`);
+  else ooPorts.add(Number(m[1]));
+}
+if (JSON.stringify([...ooPorts].sort()) !== JSON.stringify([5080, 5081])) fail("openobserve must publish exactly 127.0.0.1:5080 and :5081");
+if (!(oo.volumes ?? []).some((v: string) => String(v).startsWith("/srv/lgtm/data/openobserve:"))) fail("openobserve data must live under /srv/lgtm/data/openobserve, the path the backup copies");
+
+const ooServe = stripShellComments(read("configs/openobserve/serve.sh"));
+if (!/--https=8443 http:\/\/127\.0\.0\.1:5080\b/.test(ooServe)) fail("openobserve serve.sh must serve https 8443 -> 127.0.0.1:5080");
+if (!/--tcp=5081 tcp:\/\/127\.0\.0\.1:5081\b/.test(ooServe)) fail("openobserve serve.sh must forward tcp 5081");
+if (/--https=443\b/.test(ooServe)) fail("openobserve serve.sh must never touch :443");
+if (/\bserve\s+reset\b/.test(ooServe)) fail("openobserve serve.sh must never run `serve reset`");
+if (!(statSync(join(root, "configs/openobserve/serve.sh")).mode & 0o111)) fail("openobserve serve.sh must be executable");
+
+const ooDrillText = read("configs/openobserve/drill/compose.drill.yaml");
+const ooDrill = Bun.YAML.parse(ooDrillText) as { services: Record<string, Service> };
+if (/\/srv\/lgtm\/data/.test(ooDrillText)) fail("openobserve drill must not mention the live data directory");
+if (!/ports:\s*!override/.test(ooDrillText) || !/volumes:\s*!override/.test(ooDrillText)) fail("openobserve drill must !override ports and volumes");
+for (const port of ooDrill.services?.openobserve?.ports ?? []) {
+  const m = /^127\.0\.0\.1:(\d+):\d+$/.exec(String(port));
+  if (!m) fail(`openobserve drill: port ${port} must start with 127.0.0.1:`);
+  else if (ooPorts.has(Number(m[1]))) fail(`openobserve drill: host port ${m[1]} collides with the live stack`);
+}
+for (const v of ooDrill.services?.openobserve?.volumes ?? []) {
+  const src = String(v).split(":")[0];
+  if (src.startsWith("/") && !src.startsWith("/srv/lgtm-drill/")) fail(`openobserve drill: absolute mount ${src} must live under /srv/lgtm-drill/`);
+}
+
+for (const f of ["linux", "taylor-pc", "macos"]) {
+  const a = read(`configs/alloy/openobserve/${f}.alloy`);
+  const pc = f === "taylor-pc";
+  const urls = [...a.matchAll(/url\s*=\s*"(https?:\/\/[^"]*)"(?:\s*\+[^\n]*":(\d+)(\/[^"]*)")?/g)].map((m) => (m[2] ? `${m[1]}*:${m[2]}${m[3]}` : m[1])).sort();
+  const want = pc
+    ? ["http://127.0.0.1:5080/api/default/loki/api/v1/push", "http://127.0.0.1:5080/api/default/prometheus/api/v1/write"]
+    : ["https://*:8443/api/default/loki/api/v1/push", "https://*:8443/api/default/prometheus/api/v1/write"];
+  if (JSON.stringify(urls) !== JSON.stringify(want)) fail(`openobserve/${f}.alloy must push to ${want.join(", ")}, got ${urls.join(", ")}`);
+  if ((a.match(/basic_auth\s*\{/g) ?? []).length !== 2) fail(`openobserve/${f}.alloy: both remote-write and loki.write need basic_auth`);
+  if ((a.match(/password_file\s*=\s*coalesce\(sys\.env\("OO_PASSCODE_FILE"\)/g) ?? []).length !== 2) fail(`openobserve/${f}.alloy: the passcode must come from a file (OO_PASSCODE_FILE), never inline`);
+  if (/^\s*password\s*=/m.test(a)) fail(`openobserve/${f}.alloy: no inline password`);
+  if (!/sys\.env\("OO_USER_FILE"\)/.test(a)) fail(`openobserve/${f}.alloy: the login must come from OO_USER_FILE or a file`);
+  if (!pc && !/sys\.env\("LGTM_HOST_FILE"\)/.test(a)) fail(`openobserve/${f}.alloy: the stack host must come from LGTM_HOST_FILE or a file`);
+  const sources = (a.match(/^loki\.source\.\w+\s+"/gm) ?? []).length;
+  if ((a.match(/stream_name\s*=/g) ?? []).length < sources) fail(`openobserve/${f}.alloy: every Loki source needs its own stream_name label (OpenObserve names the stream from it)`);
+  if (/loki\.source\.file[^}]*\{[^}]*\}/s.test(a) && !/tail_from_end\s*=\s*true/.test(a)) fail(`openobserve/${f}.alloy tails files without tail_from_end`);
+}
+
 // ----------------------------------------------------- retention (30 days)
 const loki = read("configs/lgtm/loki.yaml");
 for (const [re, why] of [
@@ -182,7 +246,8 @@ for (const f of ["linux", "taylor-pc", "macos"]) {
 const scanned = [
   ...walk("configs/lgtm"),
   ...walk("configs/alloy"),
-  ...walk("docs").filter((p) => /\/lgtm/.test(p)),
+  ...walk("configs/openobserve"),
+  ...walk("docs").filter((p) => /\/(lgtm|openobserve)/.test(p)),
   ...walk("scripts").filter((p) => /lgtm/.test(p) && !p.endsWith("test-lgtm-contract.ts")),
 ];
 const rules: [RegExp, string][] = [
