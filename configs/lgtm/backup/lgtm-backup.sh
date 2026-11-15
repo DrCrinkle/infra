@@ -10,19 +10,35 @@
 #
 # Environment (from backup.env via the unit; see backup.env.example):
 #   RESTIC_REPOSITORY, RESTIC_PASSWORD_FILE, GATUS_URL, GATUS_LGTM_BACKUP_TOKEN
-# Optional overrides: LGTM_COMPOSE_DIR, LGTM_DATA_DIR, LGTM_STAGING_DIR,
-#   LGTM_MAX_DOWN_SECONDS.
+# Optional overrides: LGTM_STACK (lgtm, the default, or openobserve: which stack's
+#   containers to stop around the copy), LGTM_COMPOSE_DIR, LGTM_DATA_DIR,
+#   LGTM_STAGING_DIR, LGTM_MAX_DOWN_SECONDS.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "$here/lib.sh"
 
-compose_dir="${LGTM_COMPOSE_DIR:-$(cd "$here/.." && pwd)}"
+# One of the two stacks runs (docs/lgtm-taylor-pc.md, "Two options"); both keep their
+# data under the same root, so one copy and one restic path serve either.
+case "${LGTM_STACK:-lgtm}" in
+  lgtm)
+    default_compose_dir="$(cd "$here/.." && pwd)"
+    writers=(grafana loki tempo prometheus)
+    ;;
+  openobserve)
+    default_compose_dir="$(cd "$here/../../openobserve" && pwd)"
+    writers=(openobserve)
+    ;;
+  *)
+    echo "lgtm: refusing: LGTM_STACK must be lgtm or openobserve, got ${LGTM_STACK}" >&2
+    exit 2
+    ;;
+esac
+compose_dir="${LGTM_COMPOSE_DIR:-$default_compose_dir}"
 data="${LGTM_DATA_DIR:-/srv/lgtm/data}"
 staging="${LGTM_STAGING_DIR:-/srv/lgtm/staging}"
 max_down="${LGTM_MAX_DOWN_SECONDS:-90}"
-writers=(grafana loki tempo prometheus)
 writers_stopped=0
 
 : "${RESTIC_REPOSITORY:?}" "${RESTIC_PASSWORD_FILE:?}" "${GATUS_URL:?}" "${GATUS_LGTM_BACKUP_TOKEN:?}"
