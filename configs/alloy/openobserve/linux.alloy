@@ -1,0 +1,84 @@
+// Grafana Alloy config for Linux nodes that only report (openclaw, sentinel, edge-lab),
+// sending to the OPENOBSERVE option on taylor-pc instead of the LGTM stack.
+// Use this file OR configs/alloy/linux.alloy, never both. Runbook: docs/openobserve-taylor-pc.md.
+//
+// Everything goes to the single HTTPS Serve door on taylor-pc (:8443) with HTTP basic
+// auth. Nothing private is committed: the stack's MagicDNS name, the login and the
+// ingestion passcode are read from files on the node.
+//   /etc/alloy/lgtm-host     taylor-pc.<tailnet>.ts.net
+//   /etc/alloy/oo-user       the OpenObserve login (an email address)
+//   /etc/alloy/oo-passcode   the ingestion passcode from the OpenObserve UI (mode 0640,
+//                            root:alloy); a rotatable credential, not the login password
+// Override the paths with LGTM_HOST_FILE, OO_USER_FILE and OO_PASSCODE_FILE.
+
+local.file "lgtm_host" {
+	filename = coalesce(sys.env("LGTM_HOST_FILE"), "/etc/alloy/lgtm-host")
+}
+
+local.file "oo_user" {
+	filename = coalesce(sys.env("OO_USER_FILE"), "/etc/alloy/oo-user")
+}
+
+// Metrics: remote-write to OpenObserve's Prometheus endpoint (organisation "default").
+// The queue keeps a WAL (about 8h by default), so a short outage loses nothing.
+prometheus.remote_write "openobserve" {
+	endpoint {
+		url = "https://" + string.trim_space(local.file.lgtm_host.content) + ":8443/api/default/prometheus/api/v1/write"
+
+		basic_auth {
+			username      = string.trim_space(local.file.oo_user.content)
+			password_file = coalesce(sys.env("OO_PASSCODE_FILE"), "/etc/alloy/oo-passcode")
+		}
+	}
+
+	external_labels = {
+		host = constants.hostname,
+	}
+}
+
+prometheus.exporter.unix "node" { }
+
+prometheus.scrape "node" {
+	targets         = prometheus.exporter.unix.node.targets
+	forward_to      = [prometheus.remote_write.openobserve.receiver]
+	scrape_interval = "30s"
+}
+
+// Logs: Loki-compatible push. OpenObserve names the stream from the `stream_name`
+// label. loki.write retries with backoff but has no WAL, so logs from an outage
+// longer than a few minutes are dropped. Acceptable here.
+loki.write "openobserve" {
+	endpoint {
+		url = "https://" + string.trim_space(local.file.lgtm_host.content) + ":8443/api/default/loki/api/v1/push"
+
+		basic_auth {
+			username      = string.trim_space(local.file.oo_user.content)
+			password_file = coalesce(sys.env("OO_PASSCODE_FILE"), "/etc/alloy/oo-passcode")
+		}
+	}
+
+	external_labels = {
+		host = constants.hostname,
+	}
+}
+
+loki.relabel "journal" {
+	forward_to = []
+
+	rule {
+		source_labels = ["__journal__systemd_unit"]
+		target_label  = "unit"
+	}
+
+	rule {
+		source_labels = ["__journal_priority_keyword"]
+		target_label  = "level"
+	}
+}
+
+loki.source.journal "journal" {
+	max_age       = "12h"
+	labels        = {job = "journal", stream_name = "journal"}
+	relabel_rules = loki.relabel.journal.rules
+	forward_to    = [loki.write.openobserve.receiver]
+}

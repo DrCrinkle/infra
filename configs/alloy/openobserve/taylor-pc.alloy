@@ -1,0 +1,106 @@
+// Grafana Alloy config for taylor-pc (CachyOS, Alloy from the grafana-alloy pacman
+// package), sending to the OPENOBSERVE option running on this same host.
+// Use this file OR configs/alloy/taylor-pc.alloy, never both. Runbook: docs/openobserve-taylor-pc.md.
+//
+// The stack is local: it pushes straight to the loopback port the container
+// publishes (5080), not through this host's own Tailscale Serve door, which a Linux
+// host often cannot reach. Same node metrics, journal and container logs as the LGTM
+// variant; Grafana is not part of this option. The login and ingestion passcode are
+// read from files (mode 0640, root:grafana-alloy for the passcode):
+//   /etc/grafana-alloy/oo-user       the OpenObserve login (an email address)
+//   /etc/grafana-alloy/oo-passcode   the ingestion passcode from the OpenObserve UI
+// Override the paths with OO_USER_FILE and OO_PASSCODE_FILE.
+//
+// The grafana-alloy service user needs the `docker` group for the container
+// logs below (the socket is root-equivalent; accepted on this host only) and is
+// already in `systemd-journal` through the package's sysusers file.
+
+local.file "oo_user" {
+	filename = coalesce(sys.env("OO_USER_FILE"), "/etc/grafana-alloy/oo-user")
+}
+
+prometheus.remote_write "openobserve" {
+	endpoint {
+		url = "http://127.0.0.1:5080/api/default/prometheus/api/v1/write"
+
+		basic_auth {
+			username      = string.trim_space(local.file.oo_user.content)
+			password_file = coalesce(sys.env("OO_PASSCODE_FILE"), "/etc/grafana-alloy/oo-passcode")
+		}
+	}
+
+	external_labels = {
+		host = constants.hostname,
+	}
+}
+
+prometheus.exporter.unix "node" { }
+
+prometheus.scrape "node" {
+	targets         = prometheus.exporter.unix.node.targets
+	forward_to      = [prometheus.remote_write.openobserve.receiver]
+	scrape_interval = "30s"
+}
+
+loki.write "openobserve" {
+	endpoint {
+		url = "http://127.0.0.1:5080/api/default/loki/api/v1/push"
+
+		basic_auth {
+			username      = string.trim_space(local.file.oo_user.content)
+			password_file = coalesce(sys.env("OO_PASSCODE_FILE"), "/etc/grafana-alloy/oo-passcode")
+		}
+	}
+
+	external_labels = {
+		host = constants.hostname,
+	}
+}
+
+loki.relabel "journal" {
+	forward_to = []
+
+	rule {
+		source_labels = ["__journal__systemd_unit"]
+		target_label  = "unit"
+	}
+
+	rule {
+		source_labels = ["__journal_priority_keyword"]
+		target_label  = "level"
+	}
+}
+
+loki.source.journal "journal" {
+	max_age       = "12h"
+	labels        = {job = "journal", stream_name = "journal"}
+	relabel_rules = loki.relabel.journal.rules
+	forward_to    = [loki.write.openobserve.receiver]
+}
+
+// Container logs through the Docker socket (json-file driver, rotated by compose).
+discovery.docker "containers" {
+	host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "containers" {
+	targets = discovery.docker.containers.targets
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "service"
+	}
+}
+
+loki.source.docker "containers" {
+	host       = "unix:///var/run/docker.sock"
+	targets    = discovery.relabel.containers.output
+	labels     = {job = "docker", stream_name = "docker"}
+	forward_to = [loki.write.openobserve.receiver]
+}
