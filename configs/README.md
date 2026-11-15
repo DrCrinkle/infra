@@ -39,9 +39,11 @@ scp configs/sentinel/gatus/config.yaml opc@sentinel:/tmp/
 ssh opc@sentinel 'sudo install -m0644 /tmp/config.yaml /etc/gatus/config.yaml && sudo systemctl restart gatus'
 ```
 
-## LGTM stack (taylor-pc) and Alloy
-Grafana, Loki, Tempo and Prometheus run as one compose project on taylor-pc
-(`lgtm/`), backed up nightly to rsync.net with restic. Grafana Alloy reports from every
-node (`alloy/`). Nothing here is applied by tooling: the runbook lists each Taylor-run
+## Observability on taylor-pc (two options) and Alloy
+Pick one. `lgtm/`: Grafana, Loki, Tempo and Prometheus as one compose project.
+`openobserve/`: a single OpenObserve container. Either is backed up nightly to rsync.net with
+restic, and Grafana Alloy reports from every node (`alloy/`, with the OpenObserve variants in
+`alloy/openobserve/`). Nothing here is applied by tooling: the runbook lists each Taylor-run
 step with its rollback, and `scripts/validate-lgtm.sh` runs every static check.
-Start at `docs/lgtm-taylor-pc.md`; the tailnet ACL template is `docs/lgtm-tailnet-acl.md`.
+Start at `docs/lgtm-taylor-pc.md` (the OpenObserve option is `docs/openobserve-taylor-pc.md`); the
+tailnet ACL template is `docs/lgtm-tailnet-acl.md`.

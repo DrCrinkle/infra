@@ -7,6 +7,27 @@ as the pager that survives taylor-pc dying.
 **Nothing in this repository has been applied to any host.** Every command below is for
 Taylor to run, phase by phase, and each phase ends with a rollback.
 
+## Two options: pick one
+
+Both options are in this repo, and you choose **one** at rollout. They claim the same Serve
+door (`:8443`) and the same backup path, so do not run them side by side.
+
+| | **LGTM** (this document) | **OpenObserve** (`docs/openobserve-taylor-pc.md`) |
+|---|---|---|
+| What runs | Grafana, Loki, Tempo, Prometheus (4 containers) | OpenObserve (1 container) |
+| Sign-in | Your Tailscale identity, as Org Admin | A password; identity sign-in needs the Enterprise edition |
+| Ingest auth | None; the ACL is the only control | HTTP basic auth, a passcode per node |
+| License | the components' own | AGPL-3.0 open-source edition; SSO, advanced RBAC, audit, federated search, redaction, advanced encryption and QoS are Enterprise-only |
+| Alloy configs | `configs/alloy/*.alloy` | `configs/alloy/openobserve/*.alloy` |
+| Sentinel probes | `lgtm-grafana`, `lgtm-loki-ready`, `lgtm-prometheus-ready` (enabled by default) | `openobserve-health`, `openobserve-grpc` (shipped disabled) |
+| Backup | `LGTM_STACK=lgtm` (the default) | `LGTM_STACK=openobserve` in `backup.env` |
+
+The OpenObserve runbook covers only what differs and points back here for the rest (deploy
+checkout, step legend, restic and Gatus secrets, ACL). **The rest of this document is the LGTM
+option. Its Phase 2 installs the Gatus config as shipped (LGTM probes live, OpenObserve probes off); do
+not follow it for the OpenObserve option without the guard in the OpenObserve runbook.** Which to pick is a judgement about sign-in, auth and footprint; the comparison and its
+two trade-offs are written out in the OpenObserve runbook.
+
 ## How the pieces fit
 
 ```

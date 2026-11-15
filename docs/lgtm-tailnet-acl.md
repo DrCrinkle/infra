@@ -126,6 +126,28 @@ is the point: the tests tell you the blanket rule is what you must narrow.
 Rollback: restore the previous policy from the console's version history. Nothing on any
 host changes, so rollback is immediate.
 
+## If you chose the OpenObserve option
+
+OpenObserve (`docs/openobserve-taylor-pc.md`) has **one** HTTP door, `:8443`, that carries the
+UI and every ingest path, plus `:5081` for OTLP over gRPC. Replace the two rules above with
+one, and drop the `:3100`, `:9090`, `:4317`, `:4318` entries from the `tests`:
+
+```jsonc
+{
+  "action": "accept",
+  "src": ["lgtm-host", "lgtm-laptop-1", "lgtm-laptop-2", "lgtm-phone", "lgtm-sentinel",
+          "lgtm-edge-lab", "lgtm-openclaw", "lgtm-server-3"],
+  "dst": ["lgtm-host:8443"]
+}
+```
+
+Sentinel also needs `:5081` for the `openobserve-grpc` probe (add `lgtm-host:5081` to its
+destinations, or drop that probe). What this loses compared with the LGTM option: every device
+allowed to ingest can also reach the **login page**, because the UI and ingest share a port. The
+network can no longer keep reporters away from the UI; OpenObserve's own login is the control, and
+the ingestion passcode on each node should be treated as admin-equivalent. Keep the `deny` tests
+for the devices that need nothing.
+
 ## Not in this template
 
 - The copied rsync.net key and the OCI hosts' SSH access (Decision 8).
