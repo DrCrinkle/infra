@@ -10,8 +10,20 @@ storage:
   type: sqlite
   path: /var/lib/gatus/data.db
 
-# NOTE: alerting is intentionally NOT configured yet — no ntfy/Telegram creds.
-# To add later: define an `alerting:` block + per-endpoint `alerts:` entries.
+# Alerting: ntfy. The topic is a secret (anyone who knows it can read and post),
+# so it is NEVER committed. Gatus expands ${NTFY_TOPIC} from the environment;
+# gatus.service loads it from /etc/gatus/gatus.env (root, 0600), written at deploy
+# time. If the variable were unset Gatus would post to a public topic literally
+# named "${NTFY_TOPIC}", so create gatus.env BEFORE installing this file.
+alerting:
+  ntfy:
+    url: "https://ntfy.sh"
+    topic: "${NTFY_TOPIC}"
+    priority: 4
+    default-alert:
+      failure-threshold: 3
+      success-threshold: 2
+      send-on-resolved: true
 
 endpoints:
   # --- Main VPS (OpenClaw, tailnet 100.104.160.85) ---
@@ -21,6 +33,8 @@ endpoints:
     interval: 60s
     conditions:
       - "[CONNECTED] == true"
+    alerts:
+      - type: ntfy
 
   - name: openclaw-ssh
     group: main-vps
@@ -28,23 +42,32 @@ endpoints:
     interval: 60s
     conditions:
       - "[CONNECTED] == true"
+    alerts:
+      - type: ntfy
 
   # OpenClaw gateway — monitored via its Tailscale Serve endpoint, the intended
-  # tailnet door. The raw WS port (18789) stays loopback-bound on OpenClaw BY
-  # DESIGN (it has active local clients; rebinding to tailnet-only would break
-  # them). Tailscale Serve proxies https://openclaw.tail7c48ec.ts.net -> the
-  # loopback gateway. Verified 200 from sentinel 2026-07-10. This check therefore
+  # tailnet door (openclaw.json gateway.tailscale.mode=serve). The raw WS port
+  # (18789) stays loopback-bound on OpenClaw BY DESIGN. Serve proxies
+  # https://openclaw.tail7c48ec.ts.net (:443) -> 127.0.0.1:18789, so this check
   # covers the full client path: OpenClaw up + tailscaled + serve + gateway.
+  # 2026-11-14: failing since 2026-11-13T06:27Z. tailscaled restarted then and the
+  # :443 route to the gateway did not come back (the gateway itself answers 200 on
+  # loopback). No evidence of a deliberate removal, so the check is NOT retargeted;
+  # restore the route (docs/phase0-access-and-alerting.md) BEFORE enabling alerts,
+  # or this check pages immediately.
   - name: openclaw-gateway
     group: main-vps
     url: "https://openclaw.tail7c48ec.ts.net/healthz"
     interval: 60s
     conditions:
       - "[STATUS] == 200"
+    alerts:
+      - type: ntfy
 
   # --- Public endpoints ---
   # Working placeholder proving outbound HTTPS checks function. Replace / add your
-  # real public demo domains below.
+  # real public demo domains below. No alert: if sentinel's own egress is down it
+  # cannot deliver one anyway.
   - name: public-https-placeholder
     group: public
     url: "https://1.1.1.1"
@@ -60,6 +83,8 @@ endpoints:
   #   conditions:
   #     - "[STATUS] == 200"
   #     - "[CERTIFICATE_EXPIRATION] > 168h"
+  #   alerts:
+  #     - type: ntfy
 
 # TODO (need SSH-based external collectors, not plain Gatus probes):
 #   - main VPS disk usage below threshold
