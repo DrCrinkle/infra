@@ -14,8 +14,8 @@ Infrastructure-as-Code for personal cloud services on OCI (Oracle Cloud Infrastr
 infra/
 ├── terraform/          # OCI provisioning (VCN, compute, bastion, NAT)
 │   └── modules/        # networking, nat-instance, security
-├── ansible/            # Server config (6 roles, systemd user services)
-│   ├── roles/          # common, firewall, docker, nodejs, tailscale, openclaw
+├── ansible/            # Server config (7 roles, systemd user services)
+│   ├── roles/          # common, firewall, docker, nodejs, tailscale, openclaw, claude_mem_pilot
 │   └── group_vars/     # vars.yml + vault.yml (encrypted)
 ├── scripts/            # Verification scripts (verify-nat.sh, healthcheck)
 └── backups/            # Pre-migration state backups
