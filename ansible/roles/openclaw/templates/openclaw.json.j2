@@ -7,7 +7,7 @@
     "providers": {
       "nvidia": {
         "baseUrl": "https://integrate.api.nvidia.com/v1",
-        "apiKey": "{{ vault_nvidia_api_key }}",
+        "apiKey": {{ vault_nvidia_api_key | to_json }},
         "api": "openai-completions",
         "models": [
           {
@@ -58,33 +58,23 @@
   },
   "tools": {
     "exec": {
-      "security": "{{ openclaw_exec_security }}",
-      "ask": "{{ openclaw_exec_ask }}"
+      "host": "gateway",
+      "mode": "ask"
     },
     "web": {
       "search": {"enabled": true},
       "fetch": {"enabled": true}
     }
   },
-  "gateway": {
-    "port": {{ openclaw_gateway_port }},
-    "mode": "local",
-    "bind": "{{ openclaw_gateway_bind }}",
-    "controlUi": {"allowInsecureAuth": false},
-    "auth": {
-      "mode": "{{ openclaw_gateway_auth_mode }}",
-      "token": "{{ vault_openclaw_gateway_token }}"
-    },
-    "trustedProxies": ["127.0.0.1"],
-    "tailscale": {
-      "mode": "{{ tailscale_serve_mode | default('off') }}",
-      "resetOnExit": false
-    }
-  },
+  "gateway": {{ openclaw_invariants.gateway | combine({
+    'controlUi': {'allowInsecureAuth': false},
+    'tailscale': {'resetOnExit': false}
+  }, recursive=true) | to_json }},
+  "secrets": {{ openclaw_invariants.secrets | to_json }},
   "channels": {
     "discord": {
       "enabled": true,
-      "token": "{{ vault_discord_token }}",
+      "token": {{ vault_discord_token | to_json }},
       "groupPolicy": "allowlist",
       "dm": {
         "enabled": true,

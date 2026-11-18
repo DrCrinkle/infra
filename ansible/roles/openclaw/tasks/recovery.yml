@@ -1,0 +1,199 @@
+---
+- name: Validate vault_openclaw_vault_id before configuring the resolver
+  ansible.builtin.assert:
+    that:
+      - vault_openclaw_vault_id is defined
+      - vault_openclaw_vault_id is string
+      - vault_openclaw_vault_id is match('^ocid1[.]vault[.][A-Za-z0-9._-]+\Z')
+    fail_msg: Set vault_openclaw_vault_id in the private Ansible Vault using the Terraform output.
+  when: not ansible_check_mode or vault_openclaw_vault_id is defined
+  no_log: true
+  diff: false
+
+- name: Install pip for the OCI Vault resolver
+  ansible.builtin.package:
+    name: python3-pip
+    state: present
+  become: true
+  when: not ansible_check_mode
+
+- name: Install the OCI SDK for the instance-principal resolver
+  ansible.builtin.pip:
+    name: oci
+    executable: pip3
+    extra_args: --user
+  when: not ansible_check_mode
+
+- name: Create the directory for the OCI vault ID
+  ansible.builtin.file:
+    path: "{{ openclaw_vault_id_path | dirname }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    mode: '0700'
+
+- name: Install the private OCI vault ID
+  ansible.builtin.copy:
+    content: "{{ vault_openclaw_vault_id }}\n"
+    dest: "{{ openclaw_vault_id_path }}"
+    owner: "{{ ansible_user }}"
+    mode: '0600'
+  when: not ansible_check_mode
+  no_log: true
+  diff: false
+  notify: restart openclaw
+
+- name: Create the resolver executable directory
+  ansible.builtin.file:
+    path: "{{ openclaw_resolver_path | dirname }}"
+    state: directory
+
+- name: Install the OCI Vault resolver after its ID file
+  ansible.builtin.copy:
+    src: "{{ openclaw_resolver_source }}"
+    dest: "{{ openclaw_resolver_path }}"
+    mode: '0755'
+  when: not ansible_check_mode
+  diff: false
+  notify: restart openclaw
+
+# copy and template allocate remote staging paths even in check mode.
+- name: Preview the OCI Vault resolver installation without staging files
+  when: ansible_check_mode
+  block:
+    - name: Check the private OCI vault ID file
+      ansible.builtin.stat:
+        path: "{{ openclaw_vault_id_path }}"
+        checksum_algorithm: sha256
+        get_checksum: "{{ vault_openclaw_vault_id is defined }}"
+        get_mime: false
+      register: openclaw_vault_id_file
+      changed_when: >-
+        not openclaw_vault_id_file.stat.exists
+        or openclaw_vault_id_file.stat.mode != '0600'
+        or (openclaw_vault_id_file.stat.pw_name | default('')) != ansible_user
+        or (vault_openclaw_vault_id is defined and (openclaw_vault_id_file.stat.checksum | default('')) !=
+            ((vault_openclaw_vault_id ~ '\n') | hash('sha256')))
+      no_log: true
+      diff: false
+
+    - name: Check the installed OCI Vault resolver
+      ansible.builtin.stat:
+        path: "{{ openclaw_resolver_path }}"
+        checksum_algorithm: sha256
+        get_mime: false
+      register: openclaw_resolver_file
+      changed_when: >-
+        not openclaw_resolver_file.stat.exists
+        or openclaw_resolver_file.stat.mode != '0755'
+        or (openclaw_resolver_file.stat.checksum | default('')) !=
+           (lookup('ansible.builtin.file', openclaw_resolver_source, rstrip=false) | hash('sha256'))
+
+- name: Create the OpenClaw state directory
+  ansible.builtin.file:
+    path: "{{ openclaw_state_dir }}"
+    state: directory
+    mode: '0700'
+
+- name: Check for an existing OpenClaw config
+  ansible.builtin.stat:
+    path: "{{ openclaw_state_dir }}/openclaw.json"
+    get_checksum: false
+    get_mime: false
+  register: openclaw_config
+
+- name: Render the shared gateway invariants
+  ansible.builtin.set_fact:
+    openclaw_invariants: "{{ rendered if rendered is mapping else rendered | from_json }}"
+  vars:
+    rendered: "{{ lookup('ansible.builtin.template', 'openclaw.invariants.json.j2') }}"
+  no_log: true
+  diff: false
+
+- name: Preview fresh OpenClaw config and approvals without staging files
+  ansible.builtin.set_fact:
+    openclaw_seed_preview: "{{ lookup('ansible.builtin.template', 'openclaw.json.j2') }}"
+    openclaw_approvals_preview: "{{ lookup('ansible.builtin.template', 'exec-approvals.json.j2') }}"
+  when:
+    - ansible_check_mode
+    - not openclaw_config.stat.exists
+  changed_when: true
+  no_log: true
+  diff: false
+
+# An existing gateway owns its approvals. On a fresh host seed them before the
+# config so an interrupted bootstrap can be retried without losing that step.
+- name: Seed exec approvals on a fresh OpenClaw host
+  ansible.builtin.template:
+    src: exec-approvals.json.j2
+    dest: "{{ openclaw_state_dir }}/exec-approvals.json"
+    mode: '0600'
+    force: false
+  when:
+    - not ansible_check_mode
+    - not openclaw_config.stat.exists
+  no_log: true
+  diff: false
+  notify: restart openclaw
+
+- name: Seed the OpenClaw config on a fresh host
+  ansible.builtin.template:
+    src: openclaw.json.j2
+    dest: "{{ openclaw_state_dir }}/openclaw.json"
+    mode: '0600'
+    force: false
+  when:
+    - not ansible_check_mode
+    - not openclaw_config.stat.exists
+  no_log: true
+  diff: false
+  notify: restart openclaw
+
+# jq only reads the file. In check mode it returns a boolean, so even Ansible's
+# internal task result contains no copy of the live configuration.
+- name: Compare the existing OpenClaw config with recovery invariants
+  ansible.builtin.command:
+    expand_argument_vars: false
+    argv:
+      - jq
+      - -ce
+      - --argjson
+      - desired
+      - "{{ openclaw_invariants | to_json }}"
+      - --argjson
+      - preview
+      - "{{ ansible_check_mode | to_json }}"
+      - |
+        if type != "object" then error("OpenClaw configuration must be an object") else . end
+        | . as $current
+        | . * $desired
+        | .gateway.auth.token = $desired.gateway.auth.token
+        | if .gateway.controlUi.allowInsecureAuth == true then .gateway.controlUi.allowInsecureAuth = false else . end
+        | if .gateway.tailscale.resetOnExit == true then .gateway.tailscale.resetOnExit = false else . end
+        | if .tools.exec == null then
+            .tools.exec = {host: "gateway", mode: "ask"}
+          elif .tools.exec.mode == null and .tools.exec.security == "allowlist" and .tools.exec.ask == "on-miss" then
+            .tools.exec |= (del(.security, .ask) + {mode: "ask"})
+          else . end
+        | . as $merged
+        | {changed: ($current != $merged)}
+        | if .changed and ($preview | not) then .config = $merged else . end
+      - "{{ openclaw_state_dir }}/openclaw.json"
+  when: openclaw_config.stat.exists
+  check_mode: false
+  register: openclaw_invariants_merge
+  changed_when: ansible_check_mode and (openclaw_invariants_merge.stdout | from_json).changed
+  no_log: true
+  diff: false
+
+- name: Apply recovery invariants to the existing OpenClaw config
+  ansible.builtin.copy:
+    content: "{{ (openclaw_invariants_merge.stdout | from_json).config | to_nice_json(indent=2) }}\n"
+    dest: "{{ openclaw_state_dir }}/openclaw.json"
+    mode: '0600'
+  when:
+    - not ansible_check_mode
+    - openclaw_config.stat.exists
+    - (openclaw_invariants_merge.stdout | from_json).changed
+  no_log: true
+  diff: false
+  notify: restart openclaw

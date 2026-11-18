@@ -53,5 +53,3 @@
           2. Docker isolation: DOCKER-USER chain blocks external access
           3. Gateway: loopback bind + Tailscale serve
           4. Systemd: NoNewPrivileges, PrivateTmp, ProtectSystem
-          
-          Exec security: {{ openclaw_exec_security }}
