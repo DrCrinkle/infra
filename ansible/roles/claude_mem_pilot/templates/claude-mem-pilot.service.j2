@@ -17,7 +17,7 @@ Environment=CLAUDE_CONFIG_DIR={{ claude_mem_pilot_mount }}/home/.claude
 Environment=CLAUDE_MEM_DATA_DIR={{ claude_mem_pilot_mount }}/data
 Environment=TMPDIR={{ claude_mem_pilot_mount }}/tmp
 ExecStartPre=/usr/bin/findmnt --noheadings --mountpoint {{ claude_mem_pilot_mount }} --source UUID={{ claude_mem_pilot_volume_uuid }}
-ExecStart={{ claude_mem_pilot_node }} {{ claude_mem_pilot_release }}/plugin/scripts/worker-service.cjs --daemon
+ExecStart={{ claude_mem_pilot_bun }} {{ claude_mem_pilot_release }}/plugin/scripts/worker-service.cjs --daemon
 Restart=on-failure
 RestartSec=5s
 UMask=0077
