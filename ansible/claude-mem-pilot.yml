@@ -1,0 +1,6 @@
+---
+- name: Stage the synthetic claude-mem pilot
+  hosts: openclaw
+  gather_facts: true
+  roles:
+    - claude_mem_pilot

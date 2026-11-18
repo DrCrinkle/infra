@@ -1,0 +1,17 @@
+{
+  "CLAUDE_MEM_RUNTIME": "worker",
+  "CLAUDE_MEM_WORKER_HOST": "localhost",
+  "CLAUDE_MEM_WORKER_PORT": "37777",
+  "CLAUDE_MEM_WORKER_URL": "",
+  "CLAUDE_MEM_WORKER_AUTOSTART": "false",
+  "CLAUDE_MEM_AUTO_UPDATE": "false",
+  "CLAUDE_MEM_IDLE_EXIT_SEC": "0",
+  "CLAUDE_MEM_TRANSCRIPTS_ENABLED": "false",
+  "CLAUDE_MEM_CHROMA_ENABLED": "false",
+  "CLAUDE_MEM_CLOUD_SYNC_TOKEN": "",
+  "CLAUDE_MEM_WORKER_INGEST_TOKEN": {{ vault_claude_mem_pilot_ingest_token | to_json }},
+  "CLAUDE_MEM_PROVIDER": "openai-compatible",
+  "CLAUDE_MEM_OPENAI_COMPAT_BASE_URL": "http://localhost:37778/v1",
+  "CLAUDE_MEM_OPENAI_COMPAT_MODEL": "lifeos-memory",
+  "CLAUDE_MEM_OPENAI_COMPAT_API_KEY": {{ vault_claude_mem_pilot_provider_token | to_json }}
+}
