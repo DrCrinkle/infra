@@ -112,6 +112,7 @@
         url: "https://github.com/thedotmack/claude-mem/archive/{{ claude_mem_pilot_commit }}.tar.gz"
         dest: "{{ claude_mem_pilot_release }}/upstream.tar.gz"
         checksum: "sha256:{{ claude_mem_pilot_archive_sha256 }}"
+        tmp_dest: "{{ claude_mem_pilot_mount }}/tmp"
         mode: '0600'
 
     - name: Extract the pinned plugin tree

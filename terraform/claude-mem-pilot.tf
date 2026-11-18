@@ -14,5 +14,5 @@ resource "oci_core_volume_attachment" "claude_mem_pilot" {
   attachment_type                     = "paravirtualized"
   instance_id                         = oci_core_instance.openclaw.id
   volume_id                           = oci_core_volume.claude_mem_pilot.id
-  is_pv_encryption_in_transit_enabled = true
+  is_pv_encryption_in_transit_enabled = false
 }

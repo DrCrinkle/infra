@@ -1,7 +1,7 @@
 [Unit]
 Description=Claude-mem synthetic pilot
-ConditionPathIsMountPoint={{ claude_mem_pilot_mount }}
-Wants=claude-mem-pilot-provider.service
+AssertPathIsMountPoint={{ claude_mem_pilot_mount }}
+Requires=claude-mem-pilot-provider.service
 After=claude-mem-pilot-provider.service
 
 [Service]
