@@ -169,11 +169,6 @@
         | .gateway.auth.token = $desired.gateway.auth.token
         | if .gateway.controlUi.allowInsecureAuth == true then .gateway.controlUi.allowInsecureAuth = false else . end
         | if .gateway.tailscale.resetOnExit == true then .gateway.tailscale.resetOnExit = false else . end
-        | if .tools.exec == null then
-            .tools.exec = {host: "gateway", mode: "ask"}
-          elif .tools.exec.mode == null and .tools.exec.security == "allowlist" and .tools.exec.ask == "on-miss" then
-            .tools.exec |= (del(.security, .ask) + {mode: "ask"})
-          else . end
         | . as $merged
         | {changed: ($current != $merged)}
         | if .changed and ($preview | not) then .config = $merged else . end
