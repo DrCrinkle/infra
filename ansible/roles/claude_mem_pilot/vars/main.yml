@@ -1,0 +1,8 @@
+---
+claude_mem_pilot_mount: /srv/claude-mem-pilot
+claude_mem_pilot_commit: cc0fb95154581052f3611698b6ab6ec48a08f3f0
+claude_mem_pilot_archive_sha256: e05224f4e39a69564dafb4c723490c641652b0ce589e545c3dde4019289c1b7d
+claude_mem_pilot_worker_sha256: 4db33962da9d9b3b18fd0c02beacf2a8ac8dd36d76f30f7e62fc09aa29ed0332
+claude_mem_pilot_release: "{{ claude_mem_pilot_mount }}/release/16.0.0"
+claude_mem_pilot_node: "{{ ansible_facts.user_dir }}/.local/opt/node-current/bin/node"
+claude_mem_pilot_bun: "{{ ansible_facts.user_dir }}/.bun/bin/bun"

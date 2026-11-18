@@ -1,0 +1,177 @@
+---
+- name: Require the verified ext4 filesystem UUID
+  ansible.builtin.assert:
+    that:
+      - (claude_mem_pilot_volume_uuid | default('')) is match('^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$')
+    fail_msg: Supply the UUID of the ext4 filesystem on the verified pilot attachment.
+
+- name: Require an unprivileged service user on ARM64
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.user_uid | int != 0
+      - ansible_facts.architecture == 'aarch64'
+
+- name: Require dedicated pilot credentials
+  ansible.builtin.assert:
+    that:
+      - (vault_claude_mem_pilot_ingest_token | default('') | trim | length) > 0
+      - (vault_claude_mem_pilot_provider_token | default('') | trim | length) > 0
+      - vault_claude_mem_pilot_ingest_token != vault_claude_mem_pilot_provider_token
+  no_log: true
+
+- name: Verify the host Node version
+  ansible.builtin.command: "{{ claude_mem_pilot_node }} --version"
+  register: claude_mem_pilot_node_version
+  changed_when: false
+  failed_when: claude_mem_pilot_node_version.rc != 0 or claude_mem_pilot_node_version.stdout != 'v24.20.0'
+  check_mode: false
+
+- name: Prepare the dedicated filesystem
+  become: true
+  block:
+    - name: Check the pilot filesystem type by UUID
+      ansible.builtin.command:
+        argv: [blkid, -c, /dev/null, -s, TYPE, -o, value, -t, "UUID={{ claude_mem_pilot_volume_uuid }}"]
+      register: claude_mem_pilot_filesystem
+      changed_when: false
+      failed_when: claude_mem_pilot_filesystem.rc != 0 or claude_mem_pilot_filesystem.stdout != 'ext4'
+      check_mode: false
+
+    - name: Inspect the existing pilot mount
+      ansible.builtin.command:
+        argv: [findmnt, --mountpoint, "{{ claude_mem_pilot_mount }}", --noheadings, --raw, --output, UUID]
+      register: claude_mem_pilot_existing_mount
+      changed_when: false
+      failed_when: >-
+        claude_mem_pilot_existing_mount.rc not in [0, 1] or
+        (claude_mem_pilot_existing_mount.rc == 0 and
+        claude_mem_pilot_existing_mount.stdout != claude_mem_pilot_volume_uuid)
+      check_mode: false
+
+    - name: Check the unmounted pilot directory
+      ansible.builtin.stat:
+        path: "{{ claude_mem_pilot_mount }}"
+        follow: false
+        get_checksum: false
+      register: claude_mem_pilot_mountpoint
+      when: claude_mem_pilot_existing_mount.rc == 1
+
+    - name: Reject a symlink or non-directory mountpoint
+      ansible.builtin.assert:
+        that: not claude_mem_pilot_mountpoint.stat.exists or claude_mem_pilot_mountpoint.stat.isdir
+      when: claude_mem_pilot_existing_mount.rc == 1
+
+    - name: Protect the underlying mountpoint
+      ansible.builtin.file:
+        path: "{{ claude_mem_pilot_mount }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+        follow: false
+      when: claude_mem_pilot_existing_mount.rc == 1
+
+    - name: Mount the pilot filesystem and persist it in fstab
+      ansible.posix.mount:
+        path: "{{ claude_mem_pilot_mount }}"
+        src: "UUID={{ claude_mem_pilot_volume_uuid }}"
+        fstype: ext4
+        opts: defaults,nofail,nodev,nosuid
+        passno: '2'
+        state: mounted
+
+    - name: Verify the mounted pilot filesystem before writing data
+      ansible.builtin.command:
+        argv: [findmnt, --mountpoint, "{{ claude_mem_pilot_mount }}", --noheadings, --raw, --output, UUID]
+      register: claude_mem_pilot_mounted
+      changed_when: false
+      failed_when: claude_mem_pilot_mounted.rc != 0 or claude_mem_pilot_mounted.stdout != claude_mem_pilot_volume_uuid
+      when: not ansible_check_mode
+
+    - name: Create private pilot directories on the volume
+      ansible.builtin.file:
+        path: "{{ claude_mem_pilot_mount }}/{{ item }}"
+        state: directory
+        owner: "{{ ansible_facts.user_id }}"
+        mode: '0700'
+        follow: false
+      loop: [data, home, tmp, release]
+      when: not ansible_check_mode
+
+- name: Stage the worker files and settings on the verified volume
+  when: not ansible_check_mode
+  block:
+    - name: Create the pinned release directory
+      ansible.builtin.file:
+        path: "{{ claude_mem_pilot_release }}"
+        state: directory
+        mode: '0700'
+
+    - name: Fetch the pinned upstream archive
+      ansible.builtin.get_url:
+        url: "https://github.com/thedotmack/claude-mem/archive/{{ claude_mem_pilot_commit }}.tar.gz"
+        dest: "{{ claude_mem_pilot_release }}/upstream.tar.gz"
+        checksum: "sha256:{{ claude_mem_pilot_archive_sha256 }}"
+        tmp_dest: "{{ claude_mem_pilot_mount }}/tmp"
+        mode: '0600'
+
+    - name: Extract the pinned plugin tree
+      ansible.builtin.unarchive:
+        src: "{{ claude_mem_pilot_release }}/upstream.tar.gz"
+        dest: "{{ claude_mem_pilot_release }}"
+        remote_src: true
+        include: ["claude-mem-{{ claude_mem_pilot_commit }}/plugin"]
+        extra_opts: [--strip-components=1]
+        creates: "{{ claude_mem_pilot_release }}/.archive-extracted"
+
+    - name: Check the worker bundle digest
+      ansible.builtin.stat:
+        path: "{{ claude_mem_pilot_release }}/plugin/scripts/worker-service.cjs"
+        checksum_algorithm: sha256
+      register: claude_mem_pilot_worker
+
+    - name: Require the approved stock bundle before installing dependencies
+      ansible.builtin.assert:
+        that: claude_mem_pilot_worker.stat.checksum | default('') == claude_mem_pilot_worker_sha256
+
+    - name: Record the verified extraction
+      ansible.builtin.copy:
+        content: "{{ claude_mem_pilot_commit }}\n"
+        dest: "{{ claude_mem_pilot_release }}/.archive-extracted"
+        mode: '0600'
+
+    - name: Install the plugin's locked dependencies
+      ansible.builtin.command:
+        argv: ["{{ claude_mem_pilot_bun }}", install, --frozen-lockfile, --production]
+        chdir: "{{ claude_mem_pilot_release }}/plugin"
+        creates: "{{ claude_mem_pilot_release }}/.dependencies-installed"
+      environment:
+        HOME: "{{ claude_mem_pilot_mount }}/home"
+        TMPDIR: "{{ claude_mem_pilot_mount }}/tmp"
+        BUN_INSTALL_CACHE_DIR: "{{ claude_mem_pilot_mount }}/tmp/bun-cache"
+        PATH: "{{ claude_mem_pilot_node | dirname }}:{{ claude_mem_pilot_bun | dirname }}:/usr/bin:/bin"
+
+    - name: Record the completed dependency installation
+      ansible.builtin.copy:
+        content: "{{ claude_mem_pilot_commit }}\n"
+        dest: "{{ claude_mem_pilot_release }}/.dependencies-installed"
+        mode: '0600'
+
+    - name: Write private worker settings
+      ansible.builtin.template:
+        src: settings.json.j2
+        dest: "{{ claude_mem_pilot_mount }}/data/settings.json"
+        mode: '0600'
+      diff: false
+      no_log: true
+
+    - name: Ensure the systemd user unit directory exists
+      ansible.builtin.file:
+        path: "{{ ansible_facts.user_dir }}/.config/systemd/user"
+        state: directory
+
+    - name: Stage the pilot unit on disk
+      ansible.builtin.template:
+        src: claude-mem-pilot.service.j2
+        dest: "{{ ansible_facts.user_dir }}/.config/systemd/user/claude-mem-pilot.service"
+        mode: '0644'
