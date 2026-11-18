@@ -1,0 +1,4 @@
+---
+openclaw_resolver_path: "{{ ansible_facts.env.HOME }}/.local/bin/oci-vault-resolver"
+openclaw_vault_id_path: "{{ ansible_facts.env.HOME }}/.config/openclaw/oci-vault-id"
+openclaw_resolver_source: "{{ role_path }}/../../../configs/openclaw/secrets/oci-vault-resolver"

@@ -52,7 +52,7 @@ substitution, not a SecretRef. Acceptable per the migration brief.
 
 ## Redeploy the resolver
 
-```bash
-scp configs/openclaw/secrets/oci-vault-resolver opc@openclaw:/home/opc/.local/bin/oci-vault-resolver
-ssh opc@openclaw 'chmod 0755 ~/.local/bin/oci-vault-resolver && systemctl --user restart openclaw-gateway.service'
-```
+Use the [Ansible recovery workflow](../../../ansible/README.md#openclaw-recovery-preview).
+It installs `~/.config/openclaw/oci-vault-id` from the private Ansible Vault
+before replacing the resolver. The resolver also accepts `OCI_VAULT_ID` from its
+environment when invoked outside the OpenClaw provider.

@@ -1,4 +1,4 @@
-vault_openclaw_gateway_token: "your-gateway-token-here"
+vault_openclaw_vault_id: "replace-with-the-private-terraform-openclaw-vault-output"
 vault_nvidia_api_key: "nvapi-your-key-here"
 vault_tailscale_auth_key: "tskey-auth-your-key-here"
 vault_discord_token: "your-discord-bot-token-here"

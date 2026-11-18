@@ -2,22 +2,27 @@
   "gateway": {
     "port": {{ openclaw_gateway_port }},
     "mode": "local",
-    "bind": "{{ openclaw_gateway_bind }}",
-    "controlUi": {"allowInsecureAuth": false},
+    "bind": {{ openclaw_gateway_bind | to_json }},
     "auth": {
-      "mode": "{{ openclaw_gateway_auth_mode }}",
-      "token": "{{ vault_openclaw_gateway_token }}"
+      "mode": {{ openclaw_gateway_auth_mode | to_json }},
+      "token": {
+        "source": "exec",
+        "provider": "oci-vault",
+        "id": "gateway-auth-token"
+      }
     },
     "trustedProxies": ["127.0.0.1"],
     "tailscale": {
-      "mode": "{{ tailscale_serve_mode | default('off') }}",
-      "resetOnExit": false
+      "mode": {{ tailscale_serve_mode | default('off') | to_json }}
     }
   },
-  "tools": {
-    "exec": {
-      "security": "{{ openclaw_exec_security }}",
-      "ask": "{{ openclaw_exec_ask }}"
+  "secrets": {
+    "providers": {
+      "oci-vault": {
+        "source": "exec",
+        "command": {{ openclaw_resolver_path | to_json }},
+        "passEnv": ["HOME", "PATH"]
+      }
     }
   }
 }

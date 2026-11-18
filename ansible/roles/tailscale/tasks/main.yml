@@ -74,6 +74,7 @@
     - vault_tailscale_auth_key is defined
     - tailscale_backend_state.stdout | trim != "Running"
   no_log: true
+  diff: false
 
 - name: Set Tailscale operator for non-root serve access
   ansible.builtin.command:
