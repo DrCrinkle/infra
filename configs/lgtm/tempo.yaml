@@ -1,0 +1,35 @@
+# Tempo 3.x: single binary, local backend, no Kafka.
+# Base: grafana/docker-otel-lgtm v0.41.0 docker/tempo-config.yaml (Tempo v3.1.1).
+# Retention key: Tempo v3.1.1 configuration docs
+# (backend_worker.compaction.block_retention, default 336h).
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9096
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317" # inside the container; the host side is 127.0.0.1
+        http:
+          endpoint: "0.0.0.0:4318"
+
+memberlist:
+  bind_addr: [127.0.0.1]
+
+querier:
+  frontend_worker:
+    frontend_address: 127.0.0.1:9096
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+backend_worker:
+  compaction:
+    block_retention: 720h # 30 days

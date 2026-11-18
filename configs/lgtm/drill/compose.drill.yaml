@@ -1,0 +1,37 @@
+# Restore drill override (Drill A in docs/lgtm-taylor-pc.md). Runs a throwaway copy
+# of the stack over a restic restore, beside the live one, on remapped loopback ports:
+#
+#   docker compose -p lgtm-drill \
+#     -f configs/lgtm/compose.yaml -f configs/lgtm/drill/compose.drill.yaml up -d
+#
+# Expects `restic restore latest --target /srv/lgtm-drill`, which recreates the
+# backed-up path under the target (restic stores absolute paths). Every port stays
+# on loopback; nothing is exposed through Tailscale Serve.
+services:
+  grafana:
+    environment:
+      GF_SERVER_HTTP_PORT: "13300"
+    volumes: !override
+      - /srv/lgtm-drill/srv/lgtm/staging/grafana:/var/lib/grafana
+      - ./drill/provisioning:/etc/grafana/provisioning:ro
+
+  loki:
+    ports: !override ["127.0.0.1:13100:3100"]
+    volumes: !override
+      - ./loki.yaml:/etc/loki/loki.yaml:ro
+      - /srv/lgtm-drill/srv/lgtm/staging/loki:/loki
+
+  tempo:
+    ports: !override
+      - "127.0.0.1:13200:3200"
+      - "127.0.0.1:14317:4317"
+      - "127.0.0.1:14318:4318"
+    volumes: !override
+      - ./tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - /srv/lgtm-drill/srv/lgtm/staging/tempo:/var/tempo
+
+  prometheus:
+    ports: !override ["127.0.0.1:19090:9090"]
+    volumes: !override
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /srv/lgtm-drill/srv/lgtm/staging/prometheus:/prometheus

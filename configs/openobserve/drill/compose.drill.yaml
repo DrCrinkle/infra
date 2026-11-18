@@ -1,0 +1,17 @@
+# Restore drill override for the OpenObserve option (Drill A in
+# docs/openobserve-taylor-pc.md). Runs a throwaway copy over a restic restore,
+# beside the live one, on remapped loopback ports:
+#
+#   docker compose -p openobserve-drill \
+#     -f configs/openobserve/compose.yaml -f configs/openobserve/drill/compose.drill.yaml up -d
+#
+# Expects `restic restore latest --target /srv/lgtm-drill`, which recreates the
+# backed-up path under the target (restic stores absolute paths). Every port stays
+# on loopback; nothing is exposed through Tailscale Serve.
+services:
+  openobserve:
+    ports: !override
+      - "127.0.0.1:15080:5080"
+      - "127.0.0.1:15081:5081"
+    volumes: !override
+      - /srv/lgtm-drill/srv/lgtm/staging/openobserve:/data

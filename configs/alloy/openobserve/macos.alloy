@@ -1,0 +1,74 @@
+// Grafana Alloy config for the Macs (Homebrew `grafana-alloy`, Apple Silicon prefix
+// /opt/homebrew), sending to the OPENOBSERVE option on taylor-pc instead of the LGTM stack.
+// Use this file OR configs/alloy/macos.alloy, never both. Runbook: docs/openobserve-taylor-pc.md.
+//
+// Laptops come and go, so this ships node metrics and Homebrew service logs only.
+// Everything goes to the single HTTPS Serve door on taylor-pc (:8443) with HTTP
+// basic auth. The MagicDNS name, the login and the ingestion passcode are read from
+// files in /opt/homebrew/etc/grafana-alloy/ (the passcode file mode 0600):
+//   lgtm-host     taylor-pc.<tailnet>.ts.net
+//   oo-user       the OpenObserve login (an email address)
+//   oo-passcode   the ingestion passcode from the OpenObserve UI
+// Override the paths with LGTM_HOST_FILE, OO_USER_FILE and OO_PASSCODE_FILE.
+
+local.file "lgtm_host" {
+	filename = coalesce(sys.env("LGTM_HOST_FILE"), "/opt/homebrew/etc/grafana-alloy/lgtm-host")
+}
+
+local.file "oo_user" {
+	filename = coalesce(sys.env("OO_USER_FILE"), "/opt/homebrew/etc/grafana-alloy/oo-user")
+}
+
+prometheus.remote_write "openobserve" {
+	endpoint {
+		url = "https://" + string.trim_space(local.file.lgtm_host.content) + ":8443/api/default/prometheus/api/v1/write"
+
+		basic_auth {
+			username      = string.trim_space(local.file.oo_user.content)
+			password_file = coalesce(sys.env("OO_PASSCODE_FILE"), "/opt/homebrew/etc/grafana-alloy/oo-passcode")
+		}
+	}
+
+	external_labels = {
+		host = constants.hostname,
+	}
+}
+
+// The thermal collector errors on every scrape on Apple Silicon
+// ("no CPU power status has been recorded"), so it is off.
+prometheus.exporter.unix "node" {
+	disable_collectors = ["thermal"]
+}
+
+prometheus.scrape "node" {
+	targets         = prometheus.exporter.unix.node.targets
+	forward_to      = [prometheus.remote_write.openobserve.receiver]
+	scrape_interval = "30s"
+}
+
+loki.write "openobserve" {
+	endpoint {
+		url = "https://" + string.trim_space(local.file.lgtm_host.content) + ":8443/api/default/loki/api/v1/push"
+
+		basic_auth {
+			username      = string.trim_space(local.file.oo_user.content)
+			password_file = coalesce(sys.env("OO_PASSCODE_FILE"), "/opt/homebrew/etc/grafana-alloy/oo-passcode")
+		}
+	}
+
+	external_labels = {
+		host = constants.hostname,
+	}
+}
+
+// Logs of Homebrew-managed services, Alloy's own included.
+local.file_match "brew_services" {
+	path_targets = [{"__path__" = "/opt/homebrew/var/log/*.log", job = "brew", stream_name = "brew"}]
+}
+
+// tail_from_end: do not backfill whatever the files already hold on first start.
+loki.source.file "brew_services" {
+	targets       = local.file_match.brew_services.targets
+	tail_from_end = true
+	forward_to    = [loki.write.openobserve.receiver]
+}

@@ -1,0 +1,16 @@
+# ~/.config/systemd/user/lgtm-backup.service (a systemd USER unit; Linger=yes keeps
+# the user manager running at night). Installed from a clone at ~/deploy/infra.
+[Unit]
+Description=LGTM stack backup to rsync.net (restic)
+
+[Service]
+Type=oneshot
+# Secrets and addresses live outside Git (backup.env.example lists them).
+EnvironmentFile=%h/.config/lgtm/backup.env
+# EnvironmentFile does not expand $HOME, so the password file path is set here.
+Environment=RESTIC_PASSWORD_FILE=%h/.config/lgtm/restic.pass
+ExecStart=%h/deploy/infra/configs/lgtm/backup/lgtm-backup.sh
+Nice=10
+IOSchedulingClass=idle
+# The first upload goes over home Wi-Fi; later runs are incremental.
+TimeoutStartSec=6h

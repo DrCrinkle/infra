@@ -14,6 +14,87 @@ storage:
 # To add later: define an `alerting:` block + per-endpoint `alerts:` entries.
 
 endpoints:
+  # --- Observability stack on taylor-pc (docs/lgtm-taylor-pc.md, Phase 2) ---
+  # TWO OPTIONS, ONE SET LIVE: the `lgtm-*` probes below belong to the LGTM option and
+  # the `openobserve-*` probes to the OpenObserve option. Enable the set that matches
+  # the stack you deployed and leave the other `enabled: false`; a live probe for a
+  # stack that is not running would page forever. taylor-pc-reachable and the
+  # lgtm-backup heartbeat serve either option.
+  # APPLY AFTER https://github.com/DrCrinkle/infra/pull/1: these alerts use the
+  # `alerting.ntfy` block that PR adds. Without it they are inert, never paging.
+  # Every probe goes THROUGH the Tailscale Serve door (host + forwarder + route),
+  # so a lost Serve route pages instead of failing quietly.
+  #
+  # Pages when taylor-pc is off, asleep, rebooting over 5 min, off the tailnet, or
+  # the home uplink is down. 5 x 60s, so a normal reboot does not page.
+  - name: taylor-pc-reachable
+    group: lgtm
+    url: "icmp://taylor-pc.tail7c48ec.ts.net"
+    interval: 60s
+    conditions:
+      - "[CONNECTED] == true"
+    alerts:
+      - type: ntfy
+        failure-threshold: 5
+
+  # The three service checks below use 5 x 60s because the nightly 03:30 backup
+  # stops the containers for under 90s: that must never page.
+  - name: lgtm-grafana
+    group: lgtm
+    url: "https://taylor-pc.tail7c48ec.ts.net:8443/api/health"
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].database == ok"
+    alerts:
+      - type: ntfy
+        failure-threshold: 5
+
+  - name: lgtm-loki-ready
+    group: lgtm
+    url: "http://taylor-pc.tail7c48ec.ts.net:3100/ready"
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+    alerts:
+      - type: ntfy
+        failure-threshold: 5
+
+  - name: lgtm-prometheus-ready
+    group: lgtm
+    url: "http://taylor-pc.tail7c48ec.ts.net:9090/-/ready"
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+    alerts:
+      - type: ntfy
+        failure-threshold: 5
+
+  # OpenObserve option (docs/openobserve-taylor-pc.md). DISABLED until you choose it:
+  # enable these two and set the four lgtm-* probes above to `enabled: false`.
+  # The one HTTPS door carries the UI and every HTTP ingest path; 5081 is OTLP gRPC.
+  - name: openobserve-health
+    group: openobserve
+    enabled: false
+    url: "https://taylor-pc.tail7c48ec.ts.net:8443/healthz"
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+    alerts:
+      - type: ntfy
+        failure-threshold: 5
+
+  - name: openobserve-grpc
+    group: openobserve
+    enabled: false
+    url: "tcp://taylor-pc.tail7c48ec.ts.net:5081"
+    interval: 60s
+    conditions:
+      - "[CONNECTED] == true"
+    alerts:
+      - type: ntfy
+        failure-threshold: 5
+
   # --- Main VPS (OpenClaw, tailnet 100.104.160.85) ---
   - name: openclaw-reachable
     group: main-vps
@@ -67,3 +148,23 @@ endpoints:
 #   - backup freshness marker
 # Implement as a tiny script on sentinel that SSHes to OpenClaw, writes a metric
 # file, and exposes it over HTTP for Gatus to scrape — deferred.
+
+# Dead-man for the nightly LGTM backup: lgtm-backup.sh on taylor-pc POSTs here after
+# each run (endpoint key lgtm_lgtm-backup). No success push for 26h, or a push with
+# success=false, pages. One push a night, so the thresholds are 1 and 1: ntfy's
+# default-alert (3 failures, 2 successes) would take three missed days to page and
+# two good nights to resolve. DISABLED until Phase 4 has enabled the timer and
+# recorded a first success: flip `enabled` to true then and reinstall this file.
+# The token comes from /etc/gatus/gatus.env like NTFY_TOPIC and is never committed;
+# create it BEFORE installing this file (docs/lgtm-taylor-pc.md, Phase 2).
+external-endpoints:
+  - name: lgtm-backup
+    group: lgtm
+    enabled: false
+    token: "${GATUS_LGTM_BACKUP_TOKEN}"
+    heartbeat:
+      interval: 26h
+    alerts:
+      - type: ntfy
+        failure-threshold: 1
+        success-threshold: 1

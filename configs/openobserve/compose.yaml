@@ -1,0 +1,47 @@
+# OpenObserve on taylor-pc: the single-container ALTERNATIVE to configs/lgtm.
+# Pick ONE of the two at rollout (docs/lgtm-taylor-pc.md, "Two options"); both
+# claim Serve :8443 and the same backup path, so do not run them side by side.
+# Runbook for this option: docs/openobserve-taylor-pc.md.
+#
+# Logs, metrics and traces in one binary, data on local disk. Every port binds to
+# loopback; Tailscale Serve (configs/openobserve/serve.sh) is the only door. Never
+# publish on 0.0.0.0: Docker-published ports bypass firewalld zones and would reach
+# the home LAN.
+#
+# The image is pinned by tag AND index digest (a multi-arch index; taylor-pc pulls
+# the linux/amd64 entry). Re-resolve the digest when bumping the tag. No watchtower
+# label on purpose: watchtower on taylor-pc runs --label-enable, so this pinned
+# image is never auto-updated. Do not add the label.
+#
+# License: the open-source edition is AGPL-3.0 and is what this image is. SSO,
+# advanced RBAC, audit trails, federated search, sensitive-data redaction, advanced
+# encryption and workload management are Enterprise-only. See the runbook.
+name: openobserve
+
+services:
+  openobserve:
+    restart: unless-stopped
+    image: openobserve/openobserve:v1.1.2@sha256:4a154849432f75c4fb024de32fe34163c02406c905dab22bf8d213d2e3386392
+    user: "1000:1000" # /srv/lgtm/data is owned by the deploy user (uid 1000)
+    stop_grace_period: 60s # the 10s default SIGKILLs a WAL flush mid-write
+    # OpenObserve sizes its memory cache, query pool and memtable from the cgroup limit
+    # (its get_memory_limit reads /sys/fs/cgroup/memory.max), so this cap is honoured
+    # rather than the host's 125 GB. Source-read at v1.1.2, not yet run.
+    mem_limit: 2g
+    # ZO_ROOT_USER_EMAIL, ZO_ROOT_USER_PASSWORD and ZO_WEB_URL. Lives on the host,
+    # mode 0600, never in Git: see configs/openobserve/openobserve.env.example.
+    env_file: ["${HOME}/.config/lgtm/openobserve.env"]
+    environment:
+      ZO_DATA_DIR: /data
+      # Delete data older than 30 days (the default is 3650). Applied by compaction.
+      ZO_COMPACT_DATA_RETENTION_DAYS: "30"
+      # No usage telemetry to the vendor.
+      ZO_TELEMETRY: "false"
+    ports:
+      - "127.0.0.1:5080:5080" # HTTP: UI, API, Prometheus/Loki/OTLP-HTTP ingest
+      - "127.0.0.1:5081:5081" # gRPC: OTLP
+    volumes:
+      - /srv/lgtm/data/openobserve:/data
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" } # daemon.json sets no rotation
