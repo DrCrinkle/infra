@@ -9,4 +9,4 @@ discord_guilds:
     requireMention: false
     channels:
       "CHANNEL_ID":
-        allow: true
+        enabled: true
