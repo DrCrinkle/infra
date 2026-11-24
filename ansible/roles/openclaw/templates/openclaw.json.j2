@@ -33,6 +33,7 @@
     }
   },
   "agents": {
+    "ownership": "explicit",
     "defaults": {
       "model": {
         "primary": "{{ openclaw_default_model }}"
@@ -66,20 +67,17 @@
       "fetch": {"enabled": true}
     }
   },
-  "gateway": {{ openclaw_invariants.gateway | combine({
-    'controlUi': {'allowInsecureAuth': false},
-    'tailscale': {'resetOnExit': false}
-  }, recursive=true) | to_json }},
+  "gateway": {{ openclaw_invariants.gateway | to_json }},
   "secrets": {{ openclaw_invariants.secrets | to_json }},
   "channels": {
     "discord": {
       "enabled": true,
       "token": {"source": "exec", "provider": "oci-vault", "id": "discord-token"},
       "groupPolicy": "allowlist",
+      "dmPolicy": "allowlist",
+      "allowFrom": {{ discord_dm_allowlist | to_json }},
       "dm": {
-        "enabled": true,
-        "policy": "allowlist",
-        "allowFrom": {{ discord_dm_allowlist | to_json }}
+        "enabled": true
       },
       "guilds": {{ discord_guilds | to_json }}
     }
