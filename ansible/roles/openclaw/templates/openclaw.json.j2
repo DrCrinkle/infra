@@ -7,7 +7,7 @@
     "providers": {
       "nvidia": {
         "baseUrl": "https://integrate.api.nvidia.com/v1",
-        "apiKey": {{ vault_nvidia_api_key | to_json }},
+        "apiKey": {"source": "exec", "provider": "oci-vault", "id": "memorysearch-remote-apikey"},
         "api": "openai-completions",
         "models": [
           {
@@ -74,7 +74,7 @@
   "channels": {
     "discord": {
       "enabled": true,
-      "token": {{ vault_discord_token | to_json }},
+      "token": {"source": "exec", "provider": "oci-vault", "id": "discord-token"},
       "groupPolicy": "allowlist",
       "dm": {
         "enabled": true,

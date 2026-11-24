@@ -19,7 +19,9 @@ Use `group_vars/vault.yml.example` as the variable list. In the private Vault, s
 `terraform -chdir=../terraform output -raw openclaw_vault_ocid` from an initialized
 Terraform checkout. OpenClaw recovery installs the ID for the SSH user with
 mode `0600` before replacing the resolver. The OCI Vault must already contain the
-`gateway-auth-token` secret and grant the guest instance principal access.
+`gateway-auth-token`, `discord-token`, and `memorysearch-remote-apikey` secrets
+and grant the guest instance principal access. A fresh seed references all
+three as OCI exec SecretRefs, so no credential is written to `openclaw.json`.
 
 ## SSH host key bootstrap
 
@@ -68,7 +70,8 @@ On an existing host, the task that compares the OpenClaw config reports
 their diffs and results. An existing config can be checked without the private
 Vault file, in which case the preview checks the vault-ID file's presence
 and permissions. With the private Vault loaded, it also compares the file
-contents. A fresh-host preview needs the seed variables from the private Vault.
+contents. A fresh-host preview needs the Discord allowlist and guild variables from the
+private Vault.
 
 ## 4-Layer Security Architecture
 
@@ -107,9 +110,7 @@ contents. A fresh-host preview needs the seed variables from the private Vault.
 
 `group_vars/all/vault.yml` (encrypted):
 - `vault_openclaw_vault_id`
-- `vault_nvidia_api_key`
 - `vault_tailscale_auth_key`
-- `vault_discord_token`
 
 ## Verification
 
