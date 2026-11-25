@@ -1,0 +1,28 @@
+[Unit]
+Description=Claude-mem synthetic pilot
+AssertPathIsMountPoint={{ claude_mem_pilot_mount }}
+Requires=claude-mem-pilot-provider.service
+After=claude-mem-pilot-provider.service
+
+[Service]
+Type=simple
+WorkingDirectory={{ claude_mem_pilot_release }}/plugin
+Environment=PATH={{ claude_mem_pilot_node | dirname }}:{{ claude_mem_pilot_bun | dirname }}:/usr/bin:/bin
+Environment=HOME={{ claude_mem_pilot_mount }}/home
+Environment=XDG_CONFIG_HOME={{ claude_mem_pilot_mount }}/home/.config
+Environment=XDG_DATA_HOME={{ claude_mem_pilot_mount }}/home/.local/share
+Environment=XDG_STATE_HOME={{ claude_mem_pilot_mount }}/home/.local/state
+Environment=XDG_CACHE_HOME={{ claude_mem_pilot_mount }}/home/.cache
+Environment=CLAUDE_CONFIG_DIR={{ claude_mem_pilot_mount }}/home/.claude
+Environment=CLAUDE_MEM_DATA_DIR={{ claude_mem_pilot_mount }}/data
+Environment=TMPDIR={{ claude_mem_pilot_mount }}/tmp
+ExecStartPre=/usr/bin/findmnt --noheadings --mountpoint {{ claude_mem_pilot_mount }} --source UUID={{ claude_mem_pilot_volume_uuid }}
+ExecStart={{ claude_mem_pilot_bun }} {{ claude_mem_pilot_release }}/plugin/scripts/worker-service.cjs --daemon
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

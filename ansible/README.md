@@ -98,6 +98,7 @@ private Vault.
 | nodejs | Node.js 22.x via NodeSource |
 | tailscale | Mesh VPN + auth |
 | openclaw | Gateway, config, systemd service |
+| claude_mem_pilot | Synthetic claude-mem pilot worker; separate `claude-mem-pilot.yml` playbook, not in `site.yml` (see [claude-mem-pilot.md](claude-mem-pilot.md)) |
 
 ## Configuration
 
