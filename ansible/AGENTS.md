@@ -51,7 +51,7 @@ site.yml
 
 ### Secrets
 - Store in `group_vars/all/vault.yml`
-- Prefix with `vault_` (e.g., `vault_discord_token`)
+- Prefix with `vault_` (e.g., `vault_tailscale_auth_key`)
 - Reference as `{{ vault_* }}` in templates
 - Run with `--ask-vault-pass`
 

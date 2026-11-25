@@ -39,6 +39,7 @@ ansible-vault encrypt group_vars/all/vault.yml
 ansible-vault edit group_vars/all/vault.yml  # Add your secrets
 
 # Update inventory/hosts.yml with your server IP
+# Pin each host key first; see ansible/README.md#ssh-host-key-bootstrap
 ansible-playbook site.yml --ask-vault-pass
 ```
 

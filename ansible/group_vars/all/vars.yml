@@ -38,4 +38,4 @@ docker_enabled: true
 #     requireMention: false
 #     channels:
 #       "CHANNEL_ID":
-#         allow: true
+#         enabled: true
