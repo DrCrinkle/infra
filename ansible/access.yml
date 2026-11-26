@@ -1,0 +1,38 @@
+---
+# Phase 0: SSH resilience. Authorize extra public keys for the `opc` user on the
+# OCI hosts so no single key on one machine is the only way in.
+#
+# Scope is deliberately tiny: ONE task, ansible.posix.authorized_key, additive
+# (exclusive: false) so every existing key stays. It never touches sshd, the
+# firewall or any service, and it is not part of site.yml.
+#
+# Run it from a host that can already reach opc@ (today: taylor-pc), dry run first:
+#   ansible-playbook access.yml --limit <host> --check --diff
+#   ansible-playbook access.yml --limit <host>
+#
+# Rollback: remove the key from the list and run with state absent:
+#   ansible-playbook access.yml --limit <host> -e ssh_authorized_keys_state=absent
+#
+# Hosts: group `oci` from the local inventory (ansible/inventory/hosts.local.yml,
+# gitignored). sentinel and edge-lab are not in the committed hosts.yml because
+# their tailnet addresses are not committed; add them to your local inventory.
+- name: Authorize additional SSH keys for opc
+  hosts: "{{ access_hosts | default('oci') }}"
+  gather_facts: false
+  become: false
+
+  vars:
+    ssh_authorized_keys_state: present
+    # Public keys only (not secret, but keep the list short and commented).
+    ssh_authorized_keys:
+      # Mac (ED25519) SHA256:50h+VXzzp0X2083HA9JpbjpasVqXzntbbFXEC1+caIc
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDHbFN4nLCh5BrnlELiXNFXfYe0NtWK7rZI1HAHKl9Ym mac-ed25519"
+
+  tasks:
+    - name: Ensure the listed public keys are (or are not) authorized for opc
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user | default('opc') }}"
+        key: "{{ item }}"
+        state: "{{ ssh_authorized_keys_state }}"
+        exclusive: false
+      loop: "{{ ssh_authorized_keys }}"
