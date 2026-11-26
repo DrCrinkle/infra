@@ -1,0 +1,12 @@
+# ~/.config/systemd/user/lgtm-restic-check.timer
+[Unit]
+Description=Weekly LGTM restic integrity check
+
+[Timer]
+# Sunday 05:00, well clear of the 03:30 backup; both also share one lock.
+OnCalendar=Sun *-*-* 05:00:00
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

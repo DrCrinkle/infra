@@ -1,0 +1,87 @@
+# Personal LGTM stack on taylor-pc: Grafana, Loki, Tempo, Prometheus (no Mimir).
+# Runbook: docs/lgtm-taylor-pc.md. Static checks: scripts/validate-lgtm.sh.
+#
+# Every port binds to loopback. Tailscale Serve is the only door to the tailnet
+# (configs/lgtm/serve.sh). Never publish on 0.0.0.0: Docker-published ports
+# bypass firewalld zones and would reach the home LAN.
+#
+# Images are pinned by tag AND index digest (multi-arch index; taylor-pc pulls the
+# linux/amd64 entry). Re-resolve digests when bumping a tag; the contract test
+# (scripts/test-lgtm-contract.ts) refuses an unpinned image.
+#
+# No watchtower label on purpose: watchtower on taylor-pc runs --label-enable, so
+# these pinned images are never auto-updated. Do not add the label.
+name: lgtm
+
+x-defaults: &defaults
+  restart: unless-stopped
+  user: "1000:1000" # /srv/lgtm/data is owned by the deploy user (uid 1000)
+  stop_grace_period: 60s # the 10s default SIGKILLs a WAL/head flush mid-write
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" } # daemon.json sets no rotation
+
+services:
+  grafana:
+    <<: *defaults
+    image: grafana/grafana:13.3.1@sha256:0615ec4fbd4072004b7d86b46ded63013a74b7d6eb1119273dd89e8fa25c13cf
+    network_mode: host # so auth.proxy sees Serve's 127.0.0.1, not a bridge gateway IP
+    mem_limit: 512m
+    # GF_SECURITY_ADMIN_PASSWORD (break-glass) and GF_SERVER_ROOT_URL. Lives on
+    # the host, mode 0600, never in Git: see configs/lgtm/lgtm.env.example.
+    env_file: ["${HOME}/.config/lgtm/lgtm.env"]
+    environment:
+      GF_SERVER_HTTP_ADDR: "127.0.0.1"
+      GF_SERVER_HTTP_PORT: "3300"
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: "Tailscale-User-Login"
+      GF_AUTH_PROXY_HEADER_PROPERTY: "username"
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_WHITELIST: "127.0.0.1, ::1"
+      # auth.proxy auto-signup gets [users] auto_assign_org_role, default Viewer.
+      # Every device on the tailnet arrives as the same Tailscale user, so Org
+      # Admin here is only as narrow as the tailnet ACL
+      # (docs/lgtm-tailnet-acl.md). Apply that ACL before exposing the ingest doors.
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: "Admin"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - /srv/lgtm/data/grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+
+  loki:
+    <<: *defaults
+    image: grafana/loki:3.7.10@sha256:b43c257ccfc925d4a50b8717cac61a3b51df8c48d01847936057e5c4075a24a7
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    mem_limit: 1g
+    ports: ["127.0.0.1:3100:3100"]
+    volumes:
+      - ./loki.yaml:/etc/loki/loki.yaml:ro
+      - /srv/lgtm/data/loki:/loki
+
+  tempo:
+    <<: *defaults
+    image: grafana/tempo:3.1.1@sha256:64e2fbd56d9c2b3412a4b430a58ea59e91a670b1e75f920a0c702213ad145044
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    mem_limit: 1g
+    ports:
+      - "127.0.0.1:3200:3200" # query API (Grafana)
+      - "127.0.0.1:4317:4317" # OTLP gRPC
+      - "127.0.0.1:4318:4318" # OTLP HTTP
+    volumes:
+      - ./tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - /srv/lgtm/data/tempo:/var/tempo
+
+  prometheus:
+    <<: *defaults
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-remote-write-receiver
+      - --web.enable-otlp-receiver
+      # No --web.enable-admin-api: 9090 is reachable tailnet-wide through Serve.
+    mem_limit: 2g
+    ports: ["127.0.0.1:9090:9090"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /srv/lgtm/data/prometheus:/prometheus

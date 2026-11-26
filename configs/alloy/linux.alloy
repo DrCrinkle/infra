@@ -1,0 +1,65 @@
+// Grafana Alloy config for Linux nodes that only report: openclaw, sentinel, edge-lab
+// (AlmaLinux, Alloy from the release RPM). Runbook: docs/lgtm-taylor-pc.md.
+//
+// Ships node metrics and the journal to the LGTM stack on taylor-pc over the
+// tailnet (Tailscale Serve TCP doors). The stack's MagicDNS name is read from a
+// one-line file instead of being committed here:
+//   /etc/alloy/lgtm-host   e.g. taylor-pc.<tailnet>.ts.net
+// Override the path with the LGTM_HOST_FILE environment variable.
+
+local.file "lgtm_host" {
+	filename = coalesce(sys.env("LGTM_HOST_FILE"), "/etc/alloy/lgtm-host")
+}
+
+// Metrics: remote-write to Prometheus. The queue keeps a WAL (about 8h by
+// default), so a short taylor-pc or uplink outage loses nothing.
+prometheus.remote_write "lgtm" {
+	endpoint {
+		url = "http://" + string.trim_space(local.file.lgtm_host.content) + ":9090/api/v1/write"
+	}
+
+	external_labels = {
+		host = constants.hostname,
+	}
+}
+
+prometheus.exporter.unix "node" { }
+
+prometheus.scrape "node" {
+	targets         = prometheus.exporter.unix.node.targets
+	forward_to      = [prometheus.remote_write.lgtm.receiver]
+	scrape_interval = "30s"
+}
+
+// Logs: push to Loki. loki.write retries with backoff but has no WAL, so logs
+// from an outage longer than a few minutes are dropped. Acceptable here.
+loki.write "lgtm" {
+	endpoint {
+		url = "http://" + string.trim_space(local.file.lgtm_host.content) + ":3100/loki/api/v1/push"
+	}
+
+	external_labels = {
+		host = constants.hostname,
+	}
+}
+
+loki.relabel "journal" {
+	forward_to = []
+
+	rule {
+		source_labels = ["__journal__systemd_unit"]
+		target_label  = "unit"
+	}
+
+	rule {
+		source_labels = ["__journal_priority_keyword"]
+		target_label  = "level"
+	}
+}
+
+loki.source.journal "journal" {
+	max_age       = "12h"
+	labels        = {job = "journal"}
+	relabel_rules = loki.relabel.journal.rules
+	forward_to    = [loki.write.lgtm.receiver]
+}

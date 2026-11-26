@@ -26,6 +26,63 @@ alerting:
       send-on-resolved: true
 
 endpoints:
+  # --- LGTM stack on taylor-pc (docs/lgtm-taylor-pc.md, Phase 2) ---
+  # These alerts use the `alerting.ntfy` block above (added by PR 1).
+  # The three service probes below ship `enabled: false`: until Phase 1 opens the Serve
+  # doors they would page for doors that do not exist, and this file is what a sentinel
+  # redeploy from main copies. Phase 2 step 2 flips them in the copy it installs.
+  # taylor-pc-reachable ships enabled: it is true whether or not the stack exists.
+  # Every probe goes THROUGH the Tailscale Serve door (host + forwarder + route),
+  # so a lost Serve route pages instead of failing quietly.
+  #
+  # Pages when taylor-pc is off, asleep, rebooting over 5 min, off the tailnet, or
+  # the home uplink is down. 5 x 60s, so a normal reboot does not page.
+  - name: taylor-pc-reachable
+    group: lgtm
+    url: "icmp://taylor-pc.tail7c48ec.ts.net"
+    interval: 60s
+    conditions:
+      - "[CONNECTED] == true"
+    alerts:
+      - type: ntfy
+        failure-threshold: 5
+
+  # The three service checks below use 5 x 60s because the nightly 03:30 backup
+  # stops the containers for under 90s: that must never page.
+  - name: lgtm-grafana
+    group: lgtm
+    enabled: false
+    url: "https://taylor-pc.tail7c48ec.ts.net:8443/api/health"
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].database == ok"
+    alerts:
+      - type: ntfy
+        failure-threshold: 5
+
+  - name: lgtm-loki-ready
+    group: lgtm
+    enabled: false
+    url: "http://taylor-pc.tail7c48ec.ts.net:3100/ready"
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+    alerts:
+      - type: ntfy
+        failure-threshold: 5
+
+  - name: lgtm-prometheus-ready
+    group: lgtm
+    enabled: false
+    url: "http://taylor-pc.tail7c48ec.ts.net:9090/-/ready"
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+    alerts:
+      - type: ntfy
+        failure-threshold: 5
+
   # --- Main VPS (OpenClaw, tailnet 100.104.160.85) ---
   - name: openclaw-reachable
     group: main-vps
@@ -92,3 +149,43 @@ endpoints:
 #   - backup freshness marker
 # Implement as a tiny script on sentinel that SSHes to OpenClaw, writes a metric
 # file, and exposes it over HTTP for Gatus to scrape — deferred.
+
+# Dead-men for the two LGTM jobs on taylor-pc. Each job POSTs to its OWN endpoint after
+# every run (key <group>_<name>: lgtm_lgtm-backup, lgtm_lgtm-restic-check), so a good
+# backup can never clear a failed integrity check. A push with success=false pages at once.
+# A MISSING push pages late: Gatus checks a heartbeat on a ticker that starts when it
+# starts and asks whether anything arrived in the last interval (watchdog/external_endpoint.go
+# at Gatus v5.24.3), so with a 26h interval
+# a missed nightly run pages between 26 and 52 hours after the last good one (8 to 16
+# days for the weekly check's 192h), and every Gatus restart restarts that clock. If Gatus
+# restarts more often than the interval the ticker never fires, so a weekly check that has
+# silently stopped is only noticed while Gatus stays up for 8 days; a FAILED check still pages
+# at once. Intervals are Go durations: there is no day unit, so 8d would make Gatus panic at load.
+# One push per run, so the thresholds are 1 and 1: the default-alert (3 failures, 2
+# successes) would take three missed runs to page and two good ones to resolve.
+# DISABLED until Phase 4 has enabled the timers and recorded a first success AND the
+# one-time fire test has been run: then flip `enabled` to true and reinstall this file.
+# The token comes from /etc/gatus/gatus.env like NTFY_TOPIC and is never committed;
+# create it BEFORE installing this file (docs/lgtm-taylor-pc.md, Phase 2).
+external-endpoints:
+  - name: lgtm-backup
+    group: lgtm
+    enabled: false
+    token: "${GATUS_LGTM_BACKUP_TOKEN}"
+    heartbeat:
+      interval: 26h
+    alerts:
+      - type: ntfy
+        failure-threshold: 1
+        success-threshold: 1
+
+  - name: lgtm-restic-check
+    group: lgtm
+    enabled: false
+    token: "${GATUS_LGTM_BACKUP_TOKEN}"
+    heartbeat:
+      interval: 192h
+    alerts:
+      - type: ntfy
+        failure-threshold: 1
+        success-threshold: 1

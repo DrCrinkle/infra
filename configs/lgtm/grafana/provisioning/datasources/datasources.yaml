@@ -1,0 +1,20 @@
+# Grafana runs on the host network, so the backends are on loopback.
+# Tempo's service map is not provisioned: it needs Tempo's metrics-generator
+# remote-writing to Prometheus, which this stack does not enable.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    url: http://127.0.0.1:9090
+    isDefault: true
+  - name: Loki
+    uid: loki
+    type: loki
+    url: http://127.0.0.1:3100
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    url: http://127.0.0.1:3200
+    jsonData:
+      tracesToLogsV2: { datasourceUid: loki }
